@@ -1,0 +1,41 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devPath": "http://127.0.0.1:5173",
+    "distDir": "../build"
+  },
+  "package": {
+    "productName": "datasets-helper",
+    "version": "0.0.0"
+  },
+  "tauri": {
+    "bundle": {
+      "active": false,
+      "identifier": "com.datasets-helper.app",
+      "icon": ["icons/icon.png"]
+    },
+    "windows": [
+      {
+        "title": "datasets-helper",
+        "width": 1200,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "allowlist": {
+      "all": false,
+      "dialog": {
+        "open": true,
+        "save": true
+      },
+      "shell": {
+        "open": true
+      }
+    }
+  }
+}
+

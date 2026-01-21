@@ -1,0 +1,35 @@
+# --- Project: ignore test records/data (do not upload) ---
+test/
+
+# --- Rust / Cargo / Tauri build artifacts ---
+**/target/
+**/*.rlib
+**/*.rmeta
+
+# --- Frontend (SvelteKit/Vite) artifacts & deps ---
+apps/desktop/node_modules/
+apps/desktop/.svelte-kit/
+apps/desktop/build/
+apps/desktop/dist/
+apps/desktop/node_modules/.vite/
+
+# --- Logs / temp files ---
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.old
+*.orig
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Env / secrets (keep local) ---
+.env
+.env.*
+

@@ -1,0 +1,414 @@
+use std::{
+  collections::HashMap,
+  io::{Read, Seek, SeekFrom},
+  path::{Path, PathBuf},
+  sync::Arc,
+  time::{SystemTime, UNIX_EPOCH},
+};
+
+use parking_lot::Mutex;
+use thiserror::Error;
+use uuid::Uuid;
+
+use crate::{
+  cursor::{decode_cursor, encode_cursor},
+  export as export_impl,
+  formats,
+  models::{
+    ExportFormat, ExportRequest, ExportResult, FileFormat, RecordMeta, RecordPage, SearchMode,
+    SearchQuery, SearchResult, SessionInfo, StatsResult, Task, TaskInfo, TaskKind,
+  },
+  storage::{Storage, StorageOptions},
+  tasks::{TaskManager, TaskManagerOptions},
+};
+
+#[derive(Debug, Error)]
+pub enum CoreError {
+  #[error("io error: {0}")]
+  Io(#[from] std::io::Error),
+  #[error("unsupported format: {0:?}")]
+  UnsupportedFormat(FileFormat),
+  #[error("unknown session: {0}")]
+  UnknownSession(String),
+  #[error("bad cursor token: {0}")]
+  BadCursor(String),
+  #[error("invalid argument: {0}")]
+  InvalidArg(String),
+  #[error("storage error: {0}")]
+  Storage(String),
+  #[error("task error: {0}")]
+  Task(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreOptions {
+  pub default_page_size: usize,
+  pub preview_max_chars: usize,
+  pub raw_max_chars: usize,
+  pub max_concurrent_tasks: usize,
+  pub storage: StorageOptions,
+}
+
+impl Default for CoreOptions {
+  fn default() -> Self {
+    Self {
+      default_page_size: 10,
+      preview_max_chars: 300,
+      raw_max_chars: 8_000,
+      max_concurrent_tasks: 2,
+      storage: StorageOptions::default(),
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+struct SessionState {
+  info: SessionInfo,
+  format: FileFormat,
+  last_page: Option<crate::models::RecordPage>,
+}
+
+#[derive(Clone)]
+pub struct CoreEngine {
+  options: CoreOptions,
+  sessions: Arc<Mutex<HashMap<String, SessionState>>>,
+  tasks: TaskManager,
+  storage: Storage,
+}
+
+impl CoreEngine {
+  pub fn new(options: CoreOptions) -> Result<Self, CoreError> {
+    let storage = Storage::new(options.storage.clone()).map_err(|e| CoreError::Storage(e))?;
+    let tasks = TaskManager::new(TaskManagerOptions {
+      max_concurrent_tasks: options.max_concurrent_tasks,
+    });
+    Ok(Self {
+      options,
+      sessions: Arc::new(Mutex::new(HashMap::new())),
+      tasks,
+      storage,
+    })
+  }
+
+  /// IPC API: open_file(path) -> { session, first_page }
+  pub fn open_file(&self, path: impl AsRef<Path>) -> Result<(SessionInfo, RecordPage), CoreError> {
+    self.open_file_with_progress(path, |_| {})
+  }
+
+  /// Like `open_file`, but reports progress (best-effort) for large / slow formats.
+  ///
+  /// The callback receives a coarse `pct_0_100` (0..=100). For formats where we can track bytes
+  /// read (notably `.json` root arrays), it will update smoothly; otherwise it may jump.
+  pub fn open_file_with_progress(
+    &self,
+    path: impl AsRef<Path>,
+    mut on_progress_pct: impl FnMut(u8),
+  ) -> Result<(SessionInfo, RecordPage), CoreError> {
+    let path = path.as_ref().to_path_buf();
+    let format = formats::detect_format(&path);
+    match format {
+      FileFormat::Jsonl | FileFormat::Csv | FileFormat::Json | FileFormat::Parquet => {}
+      _ => return Err(CoreError::UnsupportedFormat(format)),
+    }
+
+    on_progress_pct(0);
+
+    let session_id = Uuid::new_v4().to_string();
+    let created_at_ms = now_ms();
+    let info = SessionInfo {
+      session_id: session_id.clone(),
+      path: path.to_string_lossy().to_string(),
+      format: format.clone(),
+      created_at_ms,
+    };
+
+    // Persist recent
+    let _ = self.storage.touch_recent(&info.path, None);
+
+    // first page from cursor = 0
+    let first_page = if format == FileFormat::Json {
+      // Track progress by bytes for large JSON (best-effort).
+      let total = std::fs::metadata(&path).ok().map(|m| m.len()).unwrap_or(0);
+      let mut last_pct: u8 = 0;
+      let (page, next) = crate::formats::read_json_page_with_progress(
+        &path,
+        crate::cursor::Cursor { offset: 0, line: 0 },
+        self.options.default_page_size,
+        self.options.preview_max_chars,
+        self.options.raw_max_chars,
+        Some(&mut |done, total_bytes, _stage| {
+          let total_bytes = if total_bytes == 0 { total } else { total_bytes };
+          if total_bytes == 0 {
+            return;
+          }
+          let pct = ((done.saturating_mul(100)) / total_bytes).min(100) as u8;
+          if pct != last_pct {
+            last_pct = pct;
+            on_progress_pct(pct);
+          }
+        }),
+      )?;
+      let next_cursor = next.map(encode_cursor);
+      RecordPage {
+        records: page.records,
+        next_cursor,
+        reached_eof: page.reached_eof,
+      }
+    } else {
+      self.read_page(&path, format.clone(), None, self.options.default_page_size)?
+    };
+
+    let state = SessionState {
+      info: info.clone(),
+      format,
+      last_page: Some(first_page.clone()),
+    };
+    self.sessions.lock().insert(session_id, state);
+    on_progress_pct(100);
+    Ok((info, first_page))
+  }
+
+  /// IPC API: next_page(session_id, cursor, page_size) -> RecordPage
+  pub fn next_page(
+    &self,
+    session_id: &str,
+    cursor: Option<&str>,
+    page_size: usize,
+  ) -> Result<RecordPage, CoreError> {
+    let (path, format) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (PathBuf::from(&s.info.path), s.format.clone())
+    };
+    let page = self.read_page(&path, format, cursor, page_size)?;
+    if let Some(s) = self.sessions.lock().get_mut(session_id) {
+      s.last_page = Some(page.clone());
+    }
+    Ok(page)
+  }
+
+  /// IPC API: search(session_id, query, mode) -> SearchResult
+  ///
+  /// - current_page: runs synchronously over last returned page (open_file/next_page)
+  /// - scan_all: starts a cancellable background task and returns task info
+  pub fn search(&self, session_id: &str, query: SearchQuery) -> Result<SearchResult, CoreError> {
+    let (path, format, last_page) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (
+        PathBuf::from(&s.info.path),
+        s.format.clone(),
+        s.last_page.clone(),
+      )
+    };
+
+    match query.mode {
+      SearchMode::CurrentPage => {
+        let lp = last_page.ok_or_else(|| CoreError::InvalidArg("no page cached".into()))?;
+        Ok(formats::search_current_page(&lp, &query))
+      }
+      SearchMode::ScanAll => {
+        let task = self
+          .tasks
+          .start_search_scan_all(path, format, query, self.options.preview_max_chars)?;
+        Ok(SearchResult {
+          mode: SearchMode::ScanAll,
+          hits: vec![],
+          task: Some(TaskInfo {
+            id: task.id.clone(),
+            kind: TaskKind::SearchScanAll,
+            cancellable: true,
+          }),
+          truncated: false,
+        })
+      }
+      SearchMode::Indexed => Err(CoreError::InvalidArg(
+        "indexed search not implemented (M4)".into(),
+      )),
+    }
+  }
+
+  /// Poll a background task status.
+  pub fn get_task(&self, task_id: &str) -> Result<Task, CoreError> {
+    self.tasks.get_task(task_id).map_err(CoreError::Task)
+  }
+
+  pub fn cancel_task(&self, task_id: &str) -> Result<(), CoreError> {
+    self.tasks.cancel_task(task_id).map_err(CoreError::Task)
+  }
+
+  /// Fetch accumulated hits from a scan_all search task, in pages.
+  pub fn search_task_hits_page(
+    &self,
+    task_id: &str,
+    cursor: Option<&str>,
+    page_size: usize,
+  ) -> Result<crate::models::RecordPage, CoreError> {
+    self.tasks
+      .search_task_hits_page(task_id, cursor, page_size)
+      .map_err(CoreError::Task)
+  }
+
+  /// IPC API: export(session_id, selection, format, output_path) -> ExportResult
+  pub fn export(
+    &self,
+    session_id: &str,
+    request: ExportRequest,
+    format: ExportFormat,
+    output_path: impl AsRef<Path>,
+  ) -> Result<ExportResult, CoreError> {
+    let (path, file_format) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (PathBuf::from(&s.info.path), s.format.clone())
+    };
+    export_impl::export(&self.tasks, path, file_format, request, format, output_path.as_ref())
+  }
+
+  /// Reserved for M3.
+  pub fn get_stats(&self, _session_id: &str) -> Result<StatsResult, CoreError> {
+    Ok(StatsResult {
+      message: "not implemented (M3)".into(),
+    })
+  }
+
+  pub fn storage(&self) -> &Storage {
+    &self.storage
+  }
+
+  fn read_page(
+    &self,
+    path: &Path,
+    format: FileFormat,
+    cursor: Option<&str>,
+    page_size: usize,
+  ) -> Result<RecordPage, CoreError> {
+    let page_size = if page_size == 0 {
+      self.options.default_page_size
+    } else {
+      page_size
+    };
+    let c = decode_cursor(cursor)?;
+    let (page, next) = match format {
+      FileFormat::Jsonl => formats::read_lines_page(
+        path,
+        c,
+        page_size,
+        self.options.preview_max_chars,
+        self.options.raw_max_chars,
+      )?,
+      FileFormat::Csv => formats::read_csv_page(
+        path,
+        c,
+        page_size,
+        self.options.preview_max_chars,
+        self.options.raw_max_chars,
+      )?,
+      FileFormat::Json => formats::read_json_page(
+        path,
+        c,
+        page_size,
+        self.options.preview_max_chars,
+        self.options.raw_max_chars,
+      )?,
+      FileFormat::Parquet => formats::read_parquet_page(
+        path,
+        c,
+        page_size,
+        self.options.preview_max_chars,
+        self.options.raw_max_chars,
+      )?,
+      _ => return Err(CoreError::UnsupportedFormat(format)),
+    };
+    let next_cursor = next.map(encode_cursor);
+    Ok(RecordPage {
+      records: page.records,
+      next_cursor,
+      reached_eof: page.reached_eof,
+    })
+  }
+
+  /// IPC API: get_record_raw(session_id, meta) -> String
+  ///
+  /// This is primarily used when `Record.raw` is truncated (for UI performance) but the user
+  /// wants to view/parse the full underlying record.
+  pub fn get_record_raw(&self, session_id: &str, meta: RecordMeta) -> Result<String, CoreError> {
+    let (path, format) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (PathBuf::from(&s.info.path), s.format.clone())
+    };
+
+    match format {
+      FileFormat::Json | FileFormat::Jsonl | FileFormat::Csv | FileFormat::Parquet => {}
+      other => return Err(CoreError::UnsupportedFormat(other)),
+    }
+
+    const MAX_RECORD_BYTES: u64 = 50 * 1024 * 1024; // 50MB safety cap
+    // For `.json` we ignore `meta.byte_len` and rescan to the end of the value to avoid relying
+    // on potentially truncated lengths.
+    if format == FileFormat::Json {
+      return crate::formats::read_json_value_at_offset(&path, meta.byte_offset, MAX_RECORD_BYTES);
+    }
+    if format == FileFormat::Parquet {
+      return crate::formats::read_parquet_row_raw(
+        &path,
+        meta.line_no,
+        self.options.raw_max_chars,
+      );
+    }
+
+    if meta.byte_len > MAX_RECORD_BYTES {
+      return Err(CoreError::InvalidArg(format!(
+        "record too large: {} bytes (max {})",
+        meta.byte_len, MAX_RECORD_BYTES
+      )));
+    }
+
+    let file_len = std::fs::metadata(&path).ok().map(|m| m.len()).unwrap_or(0);
+    if meta.byte_offset > file_len {
+      return Err(CoreError::InvalidArg(format!(
+        "byte_offset {} beyond file len {}",
+        meta.byte_offset, file_len
+      )));
+    }
+    if meta.byte_offset.saturating_add(meta.byte_len) > file_len {
+      return Err(CoreError::InvalidArg(format!(
+        "range [{}..{}) beyond file len {}",
+        meta.byte_offset,
+        meta.byte_offset.saturating_add(meta.byte_len),
+        file_len
+      )));
+    }
+
+    let mut f = std::fs::File::open(&path)?;
+    f.seek(SeekFrom::Start(meta.byte_offset))?;
+    let mut buf = vec![0u8; meta.byte_len as usize];
+    f.read_exact(&mut buf)?;
+
+    // Trim common line terminators (for .jsonl/.csv) without touching valid JSON bytes.
+    while matches!(buf.last(), Some(b'\n' | b'\r' | 0)) {
+      buf.pop();
+    }
+
+    Ok(String::from_utf8_lossy(&buf).to_string())
+  }
+}
+
+fn now_ms() -> i64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_millis() as i64
+}
+
+// (reserved for future internal use)
+

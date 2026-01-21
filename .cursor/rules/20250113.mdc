@@ -1,0 +1,13 @@
+---
+name: 20250113
+description: This is a new rule
+---
+
+# Overview
+
+Insert overview text here. The agent will only see this should they choose to apply the rule.
+
+deveploer/main.md是开发文档
+READMD.md是项目说明文档
+EXAM.md是测试文档
+你需要遵循这些文档的内容进行工作
