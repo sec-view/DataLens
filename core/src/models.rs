@@ -148,6 +148,83 @@ pub struct ExportResult {
   pub records_written: u64,
 }
 
+// --- JSON lazy tree (for huge records) ---
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JsonNodeKind {
+  Object,
+  Array,
+  String,
+  Number,
+  Boolean,
+  Null,
+  Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonChildItem {
+  /// Key or index under the current node.
+  pub seg: JsonPathSegment,
+  /// Best-effort value kind (derived from the first non-ws byte).
+  pub kind: JsonNodeKind,
+  /// Best-effort preview (truncated).
+  pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonChildrenPage {
+  pub items: Vec<JsonChildItem>,
+  /// Next cursor for paging children (0-based). `None` means no more.
+  pub next_cursor: Option<u64>,
+  pub reached_end: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonNodeSummary {
+  pub kind: JsonNodeKind,
+  /// For object/array: number of direct children counted so far.
+  /// For leaf nodes: None.
+  pub child_count: Option<u64>,
+  /// True if counting reached the real end; false if we stopped due to limits.
+  pub complete: bool,
+}
+
+// --- JSON lazy tree v2: offset-based (fast seek, no repeated path scans) ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonChildItemOffset {
+  /// Key or index under the current node.
+  pub seg: JsonPathSegment,
+  /// Best-effort value kind (derived from the first non-ws byte).
+  pub kind: JsonNodeKind,
+  /// Best-effort preview (truncated).
+  pub preview: String,
+  /// Absolute byte offset (in the session file) where this child's value starts.
+  pub value_offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonChildrenPageOffset {
+  pub items: Vec<JsonChildItemOffset>,
+  /// Absolute byte offset for the next page cursor within the same parent node.
+  /// `None` means no more.
+  pub next_cursor_offset: Option<u64>,
+  /// For arrays: the next element index corresponding to `next_cursor_offset`.
+  /// For objects: always `None`.
+  pub next_cursor_index: Option<u64>,
+  pub reached_end: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonNodeSummaryOffset {
+  pub kind: JsonNodeKind,
+  pub child_count: Option<u64>,
+  pub complete: bool,
+  /// Absolute byte offset of the node value (echoed back for convenience/debugging).
+  pub node_offset: u64,
+}
+
 /// Reserved for M3 (DuckDB stats).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatsResult {

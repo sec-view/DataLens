@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 
 use crate::{
   engine::CoreError,
-  models::{ExportFormat, ExportRequest, FileFormat, JsonPathSegment},
+  models::{ExportFormat, ExportRequest, FileFormat},
   models::ExportResult,
   tasks::TaskManager,
 };
@@ -45,27 +45,16 @@ pub(crate) fn export(
       ));
     }
 
-    let raw = crate::formats::read_json_value_at_offset(&session_path, meta.byte_offset, 128 * 1024 * 1024)?;
-    let root: Value = serde_json::from_str(&raw)
-      .map_err(|e| CoreError::InvalidArg(format!("JSON 解析失败（无法导出子树）：{e}")))?;
-
-    let subtree = value_at_path(&root, &path).ok_or_else(|| {
-      CoreError::InvalidArg("所选子树路径无效（无法在当前记录中定位）".into())
-    })?;
-
-    let mut out_values: Vec<Value> = Vec::new();
-    if include_root {
-      out_values.push(subtree.clone());
-    } else {
-      for seg in &children {
-        let v = child_at_segment(subtree, seg).ok_or_else(|| {
-          CoreError::InvalidArg(format!("子树子项选择无效：{seg:?}"))
-        })?;
-        out_values.push(v.clone());
-      }
-    }
-
-    let written = write_values_as_json(out_format, &mut writer, &out_values)?;
+    // Stream export for huge records (no full JSON parse in memory).
+    let written = crate::formats::export_json_subtree_stream(
+      &session_path,
+      meta.byte_offset,
+      &path,
+      include_root,
+      &children,
+      out_format,
+      &mut writer,
+    )?;
     writer.flush()?;
     return Ok(ExportResult {
       output_path: output_path.to_string_lossy().to_string(),
@@ -724,48 +713,6 @@ fn duckdb_value_to_json(v: &duckdb::types::Value) -> Value {
 }
 
 // --- json_subtree helpers ---
-
-fn value_at_path<'a>(root: &'a Value, path: &[JsonPathSegment]) -> Option<&'a Value> {
-  let mut cur = root;
-  for seg in path {
-    cur = child_at_segment(cur, seg)?;
-  }
-  Some(cur)
-}
-
-fn child_at_segment<'a>(cur: &'a Value, seg: &JsonPathSegment) -> Option<&'a Value> {
-  match seg {
-    JsonPathSegment::Key(k) => cur.get(k),
-    JsonPathSegment::Index(i) => cur.get(*i as usize),
-  }
-}
-
-fn write_values_as_json(
-  out_format: ExportFormat,
-  writer: &mut BufWriter<File>,
-  values: &[Value],
-) -> Result<u64, CoreError> {
-  match out_format {
-    ExportFormat::Jsonl => {
-      for v in values {
-        let s = serde_json::to_string(v)
-          .map_err(|e| CoreError::InvalidArg(format!("JSON 序列化失败：{e}")))?;
-        writer.write_all(s.as_bytes())?;
-        writer.write_all(b"\n")?;
-      }
-      Ok(values.len() as u64)
-    }
-    ExportFormat::Json => {
-      // Pretty JSON array for readability.
-      serde_json::to_writer_pretty(writer, values)
-        .map_err(|e| CoreError::InvalidArg(format!("JSON 序列化失败：{e}")))?;
-      Ok(values.len() as u64)
-    }
-    ExportFormat::Csv => Err(CoreError::InvalidArg(
-      "json_subtree export does not support csv output".into(),
-    )),
-  }
-}
 
 // --- tiny JSON scanner helpers (streaming) ---
 

@@ -80,6 +80,47 @@ export interface ExportResult {
   records_written: number;
 }
 
+export type JsonNodeKind = 'object' | 'array' | 'string' | 'number' | 'boolean' | 'null' | 'unknown';
+
+export interface JsonChildItem {
+  seg: string | number;
+  kind: JsonNodeKind;
+  preview: string;
+}
+
+export interface JsonChildrenPage {
+  items: JsonChildItem[];
+  next_cursor: number | null;
+  reached_end: boolean;
+}
+
+export interface JsonNodeSummary {
+  kind: JsonNodeKind;
+  child_count: number | null;
+  complete: boolean;
+}
+
+export interface JsonChildItemOffset {
+  seg: string | number;
+  kind: JsonNodeKind;
+  preview: string;
+  value_offset: number;
+}
+
+export interface JsonChildrenPageOffset {
+  items: JsonChildItemOffset[];
+  next_cursor_offset: number | null;
+  next_cursor_index: number | null;
+  reached_end: boolean;
+}
+
+export interface JsonNodeSummaryOffset {
+  kind: JsonNodeKind;
+  child_count: number | null;
+  complete: boolean;
+  node_offset: number;
+}
+
 export interface OpenFileResponse {
   session: SessionInfo;
   first_page: RecordPage;
@@ -199,5 +240,87 @@ export async function exportToFile(args: {
       output_path: args.output_path
     }
   });
+}
+
+export async function jsonListChildren(args: {
+  session_id: string;
+  meta: RecordMeta;
+  path: (string | number)[];
+  cursor?: number | null;
+  limit?: number | null;
+}): Promise<JsonChildrenPage> {
+  return await invokeCompat('json_list_children', {
+    args: {
+      sessionId: args.session_id,
+      session_id: args.session_id,
+      meta: args.meta,
+      path: args.path,
+      cursor: args.cursor ?? null,
+      limit: args.limit ?? null
+    }
+  });
+}
+
+export async function jsonNodeSummary(args: {
+  session_id: string;
+  meta: RecordMeta;
+  path: (string | number)[];
+  max_items?: number | null;
+  max_scan_bytes?: number | null;
+}): Promise<JsonNodeSummary> {
+  return await invokeCompat('json_node_summary', {
+    args: {
+      sessionId: args.session_id,
+      session_id: args.session_id,
+      meta: args.meta,
+      path: args.path,
+      max_items: args.max_items ?? null,
+      max_scan_bytes: args.max_scan_bytes ?? null
+    }
+  });
+}
+
+export async function jsonListChildrenAtOffset(args: {
+  session_id: string;
+  meta: RecordMeta;
+  node_offset: number;
+  cursor_offset?: number | null;
+  cursor_index?: number | null;
+  limit?: number | null;
+}): Promise<JsonChildrenPageOffset> {
+  return await invokeCompat('json_list_children_at_offset', {
+    args: {
+      sessionId: args.session_id,
+      session_id: args.session_id,
+      meta: args.meta,
+      node_offset: args.node_offset,
+      cursor_offset: args.cursor_offset ?? null,
+      cursor_index: args.cursor_index ?? null,
+      limit: args.limit ?? null
+    }
+  });
+}
+
+export async function jsonNodeSummaryAtOffset(args: {
+  session_id: string;
+  meta: RecordMeta;
+  node_offset: number;
+  max_items?: number | null;
+  max_scan_bytes?: number | null;
+}): Promise<JsonNodeSummaryOffset> {
+  return await invokeCompat('json_node_summary_at_offset', {
+    args: {
+      sessionId: args.session_id,
+      session_id: args.session_id,
+      meta: args.meta,
+      node_offset: args.node_offset,
+      max_items: args.max_items ?? null,
+      max_scan_bytes: args.max_scan_bytes ?? null
+    }
+  });
+}
+
+export async function takePendingOpenPaths(): Promise<string[]> {
+  return await invokeCompat('take_pending_open_paths', {});
 }
 

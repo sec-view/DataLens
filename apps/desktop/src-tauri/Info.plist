@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!--
+      NOTE:
+      - This file is merged into the generated Info.plist by Tauri (v1 bundler).
+      - Do NOT override CFBundleIdentifier/CFBundleVersion/etc here; keep it to extra keys only.
+    -->
+
+    <!-- Declare custom UTIs for extensions macOS doesn't natively recognize well (jsonl/parquet). -->
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+      <dict>
+        <key>UTTypeIdentifier</key>
+        <string>com.datalens.jsonl</string>
+        <key>UTTypeDescription</key>
+        <string>JSON Lines</string>
+        <key>UTTypeConformsTo</key>
+        <array>
+          <string>public.text</string>
+        </array>
+        <key>UTTypeTagSpecification</key>
+        <dict>
+          <key>public.filename-extension</key>
+          <array>
+            <string>jsonl</string>
+          </array>
+          <key>public.mime-type</key>
+          <string>application/x-ndjson</string>
+        </dict>
+      </dict>
+
+      <dict>
+        <key>UTTypeIdentifier</key>
+        <string>com.datalens.parquet</string>
+        <key>UTTypeDescription</key>
+        <string>Apache Parquet</string>
+        <key>UTTypeConformsTo</key>
+        <array>
+          <string>public.data</string>
+        </array>
+        <key>UTTypeTagSpecification</key>
+        <dict>
+          <key>public.filename-extension</key>
+          <array>
+            <string>parquet</string>
+          </array>
+          <key>public.mime-type</key>
+          <string>application/x-parquet</string>
+        </dict>
+      </dict>
+    </array>
+
+    <!-- Finder "Open With" / double click: document types the app can open. -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleTypeName</key>
+        <string>JSON</string>
+        <key>CFBundleTypeRole</key>
+        <string>Viewer</string>
+        <key>LSHandlerRank</key>
+        <string>Owner</string>
+        <key>LSItemContentTypes</key>
+        <array>
+          <string>public.json</string>
+        </array>
+        <key>CFBundleTypeExtensions</key>
+        <array>
+          <string>json</string>
+        </array>
+      </dict>
+
+      <dict>
+        <key>CFBundleTypeName</key>
+        <string>JSON Lines</string>
+        <key>CFBundleTypeRole</key>
+        <string>Viewer</string>
+        <key>LSHandlerRank</key>
+        <string>Owner</string>
+        <key>LSItemContentTypes</key>
+        <array>
+          <string>com.datalens.jsonl</string>
+        </array>
+        <key>CFBundleTypeExtensions</key>
+        <array>
+          <string>jsonl</string>
+        </array>
+      </dict>
+
+      <dict>
+        <key>CFBundleTypeName</key>
+        <string>CSV</string>
+        <key>CFBundleTypeRole</key>
+        <string>Viewer</string>
+        <key>LSHandlerRank</key>
+        <string>Owner</string>
+        <key>LSItemContentTypes</key>
+        <array>
+          <string>public.comma-separated-values-text</string>
+          <string>public.delimited-values-text</string>
+          <string>public.text</string>
+        </array>
+        <key>CFBundleTypeExtensions</key>
+        <array>
+          <string>csv</string>
+        </array>
+      </dict>
+
+      <dict>
+        <key>CFBundleTypeName</key>
+        <string>Apache Parquet</string>
+        <key>CFBundleTypeRole</key>
+        <string>Viewer</string>
+        <key>LSHandlerRank</key>
+        <string>Owner</string>
+        <key>LSItemContentTypes</key>
+        <array>
+          <string>com.datalens.parquet</string>
+        </array>
+        <key>CFBundleTypeExtensions</key>
+        <array>
+          <string>parquet</string>
+        </array>
+      </dict>
+    </array>
+  </dict>
+</plist>
+

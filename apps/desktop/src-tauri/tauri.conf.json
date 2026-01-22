@@ -6,18 +6,25 @@
     "distDir": "../build"
   },
   "package": {
-    "productName": "datasets-helper",
+    "productName": "DataLens",
     "version": "0.0.0"
   },
   "tauri": {
     "bundle": {
-      "active": false,
-      "identifier": "com.datasets-helper.app",
-      "icon": ["icons/icon.png"]
+      "active": true,
+      "targets": ["dmg"],
+      "identifier": "com.datalens.app",
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ]
     },
     "windows": [
       {
-        "title": "datasets-helper",
+        "title": "DataLens",
         "width": 1200,
         "height": 800,
         "resizable": true

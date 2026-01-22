@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="asset/derived/logo-320.png" alt="DataLens" />
+</p>
+
 # DataLens（数据透镜）
 
 一个用于 **秒级首屏、低内存** 浏览超大数据文件的桌面工具（Tauri + Rust + SvelteKit）。  

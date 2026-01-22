@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { clipboardWriteText, dialogOpen, dialogSave, eventListen, isTauri } from '$lib/platform';
   import JsonTree from '$lib/components/JsonTree.svelte';
+  import JsonLazyTree from '$lib/components/JsonLazyTree.svelte';
   import JsonTreePicker, { type JsonPath } from '$lib/components/JsonTreePicker.svelte';
   import FileTreeNode from '$lib/components/FileTreeNode.svelte';
   import {
@@ -15,6 +16,7 @@
     scanFolderTree,
     search,
     searchTaskHitsPage,
+    takePendingOpenPaths,
     type ExportFormat,
     type ExportRequest,
     type FsNode,
@@ -87,6 +89,10 @@
   let detailJsonValue: unknown = null;
   let detailJsonErr: string | null = null;
   let detailLoadingFull = false;
+  let detailTruncated = false;
+  let detailCanLoadFull = false;
+  let detailTooLargeHint: string | null = null;
+  let detailStreamMode = false;
   let detailFetchToken = 0;
   let detailDefaultExpand = true;
   let detailCopying = false;
@@ -170,21 +176,71 @@
     } catch {
       folderExpanded = new Set();
     }
+
+    // If the OS launched us with file(s) to open (e.g. double-click associated files),
+    // fetch them once the UI is ready and open/scan accordingly.
+    if (isTauriEnv) {
+      (async () => {
+        try {
+          const paths = await takePendingOpenPaths();
+          if (Array.isArray(paths) && paths.length > 0) {
+            await handleDroppedPaths(paths);
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
   });
 
   onMount(() => {
-    let unlisten: null | (() => void) = null;
+    let unlistenProgress: null | (() => void) = null;
+    let unlistenOpenPaths: null | (() => void) = null;
+    let unlistenFileDrop: null | (() => void) = null;
+    let unlistenFileDropHover: null | (() => void) = null;
+    let unlistenFileDropCancelled: null | (() => void) = null;
     if (!isTauri()) return () => {};
     (async () => {
-      unlisten = await eventListen<OpenFileProgressPayload>('open_file_progress', (e) => {
+      unlistenProgress = await eventListen<OpenFileProgressPayload>('open_file_progress', (e) => {
         if (!openRequestId) return;
         if (e.payload.request_id !== openRequestId) return;
         openPct = e.payload.pct_0_100;
         openStage = e.payload.stage;
       });
+
+      // When the app is already running, macOS "Open With"/double-click can request us
+      // to open additional files. Handle it by simulating a drop/open.
+      unlistenOpenPaths = await eventListen<string[]>('open_paths', (e) => {
+        const paths = e.payload;
+        if (!Array.isArray(paths) || paths.length === 0) return;
+        void handleDroppedPaths(paths);
+      });
+
+      // Tauri-native file drop events.
+      // On macOS, HTML5 DataTransfer.files often does NOT expose real file paths,
+      // but Tauri emits them via `tauri://file-drop`.
+      unlistenFileDropHover = await eventListen<string[]>('tauri://file-drop-hover', (e) => {
+        const paths = e.payload;
+        if (!Array.isArray(paths) || paths.length === 0) return;
+        sessionDropActive = true;
+      });
+      // `tauri://file-drop-cancelled` usually has no payload.
+      unlistenFileDropCancelled = await eventListen<unknown>('tauri://file-drop-cancelled', (_e) => {
+        sessionDropActive = false;
+      });
+      unlistenFileDrop = await eventListen<string[]>('tauri://file-drop', (e) => {
+        const paths = e.payload;
+        sessionDropActive = false;
+        if (!Array.isArray(paths) || paths.length === 0) return;
+        void handleDroppedPaths(paths);
+      });
     })();
     return () => {
-      unlisten?.();
+      unlistenProgress?.();
+      unlistenOpenPaths?.();
+      unlistenFileDrop?.();
+      unlistenFileDropHover?.();
+      unlistenFileDropCancelled?.();
     };
   });
 
@@ -849,6 +905,92 @@
     }
   }
 
+  function isTooLargeErrMessage(msg: string) {
+    const m = (msg || '').toLowerCase();
+    return m.includes('json value too large') || m.includes('record too large') || m.includes('max 52428800');
+  }
+
+  async function onLoadFullDetail() {
+    if (!session?.session_id) return;
+    if (!selected?.meta) return;
+    if (!detailTruncated) return;
+    if (!detailCanLoadFull) return;
+
+    const token = ++detailFetchToken;
+    detailLoadingFull = true;
+    detailJsonErr = null;
+    try {
+      const full = await getRecordRaw({ session_id: session.session_id, meta: selected.meta });
+      if (token !== detailFetchToken) return;
+
+      detailText = full;
+      detailCharLen = Array.from(full).length;
+
+      const fmt = session?.format;
+      const shouldTryParse = Boolean(selected && fmt && isJsonLikeFormat(fmt));
+      if (shouldTryParse) {
+        detailJsonOk = false;
+        detailJsonValue = null;
+        detailJsonErr = null;
+        try {
+          detailJsonValue = JSON.parse(full);
+          detailJsonOk = true;
+        } catch (e: any) {
+          detailJsonErr = String(e?.message ?? e);
+        }
+      }
+    } catch (e: any) {
+      if (token !== detailFetchToken) return;
+      const msg = String(e?.message ?? e);
+      if (isTooLargeErrMessage(msg)) {
+        detailJsonErr = '记录过大：无法在详情中加载完整内容（超过 IPC 上限）。请使用“导出本条记录”查看原文。';
+      } else {
+        detailJsonErr = `获取完整记录失败：${msg}`;
+      }
+    } finally {
+      if (token !== detailFetchToken) return;
+      detailLoadingFull = false;
+    }
+  }
+
+  async function onExportCurrentRecord() {
+    if (!session) return;
+    if (!selected?.meta) {
+      errorMsg = '当前选择不是原始记录（缺少定位信息 meta），无法直接导出本条。';
+      return;
+    }
+
+    errorMsg = null;
+    const fmt: ExportFormat = session.format === 'csv' ? 'csv' : 'jsonl';
+    const ext = fmt === 'csv' ? 'csv' : 'jsonl';
+
+    let out: string | null = null;
+    try {
+      const res = await dialogSave({
+        defaultPath: `record_${selected.id}.${ext}`
+      });
+      if (!res) return;
+      out = res;
+    } catch (e: any) {
+      errorMsg = `保存文件对话框失败：${String(e)}`;
+      return;
+    }
+
+    busy = true;
+    try {
+      await exportToFile({
+        session_id: session.session_id,
+        request: { type: 'selection', record_ids: [selected.id] },
+        format: fmt,
+        output_path: out
+      });
+    } catch (e: any) {
+      errorMsg = String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
   function onKeyDownGlobal(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
     if (exportModalOpen) {
@@ -1102,6 +1244,10 @@
   $: {
     const token = ++detailFetchToken;
     detailLoadingFull = false;
+    detailTruncated = false;
+    detailCanLoadFull = false;
+    detailTooLargeHint = null;
+    detailStreamMode = false;
 
     const fmt = session?.format;
     const baseText = selected?.raw ?? selected?.preview ?? '';
@@ -1125,37 +1271,23 @@
     }
 
     // If the raw text looks truncated (ends with our ellipsis marker),
-    // fetch the full underlying bytes and (if applicable) retry parsing.
-    const looksTruncated = Boolean(selected?.raw && baseText.endsWith('…') && selected?.meta);
-    if (token === detailFetchToken && looksTruncated && selected?.meta && session?.session_id) {
-      detailLoadingFull = true;
-      (async () => {
-        try {
-          const full = await getRecordRaw({ session_id: session!.session_id, meta: selected!.meta! });
-          if (token !== detailFetchToken) return;
-
-          detailText = full;
-          detailCharLen = Array.from(full).length;
-
-          if (shouldTryParse) {
-            detailJsonOk = false;
-            detailJsonValue = null;
-            detailJsonErr = null;
-            try {
-              detailJsonValue = JSON.parse(full);
-              detailJsonOk = true;
-            } catch (e: any) {
-              detailJsonErr = String(e?.message ?? e);
-            }
-          }
-        } catch (e: any) {
-          if (token !== detailFetchToken) return;
-          detailJsonErr = `获取完整记录失败：${String(e?.message ?? e)}`;
-        } finally {
-          if (token !== detailFetchToken) return;
-          detailLoadingFull = false;
+    // we DO NOT auto-fetch full content anymore (can exceed IPC limits and freeze UI).
+    // Instead, expose a manual "加载完整内容" action when it's safe.
+    detailTruncated = Boolean(selected?.raw && baseText.endsWith('…'));
+    const metaLen = selected?.meta?.byte_len ?? 0;
+    // Keep a safety margin under Tauri's ~50MB IPC cap.
+    const IPC_SAFE_MAX_BYTES = 45 * 1024 * 1024;
+    if (detailTruncated && selected?.meta && session?.session_id) {
+      if (metaLen > 0 && metaLen > IPC_SAFE_MAX_BYTES) {
+        detailCanLoadFull = false;
+        detailTooLargeHint = `记录过大（约 ${Math.ceil(metaLen / (1024 * 1024))}MB），无法在详情中加载完整内容。`;
+        // For huge JSON records, enable streaming tree mode by default.
+        if (session?.format === 'json') {
+          detailStreamMode = true;
         }
-      })();
+      } else {
+        detailCanLoadFull = true;
+      }
     }
   }
 
@@ -1839,6 +1971,25 @@
               <div class="kv"><span class="k">行号</span><span class="v">{selected.meta.line_no}</span></div>
             {/if}
             <div class="kv"><span class="k">字符长度</span><span class="v">{detailCharLen}</span></div>
+            {#if detailTruncated}
+              <div class="kv">
+                <span class="k">内容状态</span>
+                <span class="v">
+                  已截断
+                  {#if detailTooLargeHint}
+                    <span class="muted">（{detailTooLargeHint}）</span>
+                  {/if}
+                </span>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px">
+                <button type="button" on:click={onLoadFullDetail} disabled={busy || detailLoadingFull || !detailCanLoadFull}>
+                  加载完整内容
+                </button>
+                <button type="button" on:click={onExportCurrentRecord} disabled={busy || !session || !selected?.meta}>
+                  导出本条记录…
+                </button>
+              </div>
+            {/if}
 
             {#if detailJsonOk}
               <div class="json-view" role="region" aria-label="JSON 结构化详情" bind:this={detailJsonViewEl}>
@@ -1869,7 +2020,15 @@
                 {/key}
               </div>
             {:else}
-              <pre class="raw">{detailText}</pre>
+              {#if detailStreamMode && session?.format === 'json' && selected?.meta}
+                <div class="json-view" role="region" aria-label="JSON（流式）结构化详情">
+                  <div class="muted" style="margin-bottom: 6px">超大记录：已启用流式结构浏览（按需加载子节点）。</div>
+                  <JsonLazyTree sessionId={session.session_id} meta={selected.meta} />
+                </div>
+                <pre class="raw">{detailText}</pre>
+              {:else}
+                <pre class="raw">{detailText}</pre>
+              {/if}
               {#if detailLoadingFull}
                 <div class="muted">正在加载完整内容…</div>
               {/if}

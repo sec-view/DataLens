@@ -1,5 +1,6 @@
 # --- Project: ignore test records/data (do not upload) ---
 test/
+release/
 
 # --- Rust / Cargo / Tauri build artifacts ---
 **/target/

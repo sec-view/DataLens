@@ -16,7 +16,8 @@ use crate::{
   formats,
   models::{
     ExportFormat, ExportRequest, ExportResult, FileFormat, RecordMeta, RecordPage, SearchMode,
-    SearchQuery, SearchResult, SessionInfo, StatsResult, Task, TaskInfo, TaskKind,
+    SearchQuery, SearchResult, SessionInfo, StatsResult, Task, TaskInfo, TaskKind, JsonChildrenPage,
+    JsonPathSegment, JsonNodeSummary, JsonChildrenPageOffset, JsonNodeSummaryOffset,
   },
   storage::{Storage, StorageOptions},
   tasks::{TaskManager, TaskManagerOptions},
@@ -269,6 +270,137 @@ impl CoreEngine {
       (PathBuf::from(&s.info.path), s.format.clone())
     };
     export_impl::export(&self.tasks, path, file_format, request, format, output_path.as_ref())
+  }
+
+  /// IPC API: json_list_children(session_id, meta, path, cursor, limit) -> JsonChildrenPage
+  ///
+  /// Designed for huge single-record JSON values: list direct children under a selected subtree
+  /// without materializing the full JSON string.
+  pub fn json_list_children(
+    &self,
+    session_id: &str,
+    meta: RecordMeta,
+    path: Vec<JsonPathSegment>,
+    cursor: Option<u64>,
+    limit: usize,
+  ) -> Result<JsonChildrenPage, CoreError> {
+    let (path_buf, format) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (PathBuf::from(&s.info.path), s.format.clone())
+    };
+    if format != FileFormat::Json {
+      return Err(CoreError::UnsupportedFormat(format));
+    }
+    let cursor = cursor.unwrap_or(0);
+    let limit = if limit == 0 { 50 } else { limit };
+    crate::formats::list_json_children_page(
+      &path_buf,
+      meta.byte_offset,
+      &path,
+      cursor,
+      limit,
+      self.options.preview_max_chars,
+    )
+  }
+
+  /// IPC API: json_node_summary(session_id, meta, path) -> JsonNodeSummary
+  ///
+  /// Returns node kind and (best-effort) child count. Counting may stop early due to caps.
+  pub fn json_node_summary(
+    &self,
+    session_id: &str,
+    meta: RecordMeta,
+    path: Vec<JsonPathSegment>,
+    max_items: Option<u64>,
+    max_scan_bytes: Option<u64>,
+  ) -> Result<JsonNodeSummary, CoreError> {
+    let (path_buf, format) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (PathBuf::from(&s.info.path), s.format.clone())
+    };
+    if format != FileFormat::Json {
+      return Err(CoreError::UnsupportedFormat(format));
+    }
+    let max_items = max_items.unwrap_or(200_000);
+    let max_scan_bytes = max_scan_bytes.unwrap_or(64 * 1024 * 1024);
+    crate::formats::json_node_summary(&path_buf, meta.byte_offset, &path, max_items, max_scan_bytes)
+  }
+
+  /// IPC API (v2): json_list_children_at_offset(session_id, meta, node_offset, cursor_offset, limit)
+  ///
+  /// This is a faster variant for huge records: the frontend navigates by absolute byte offsets
+  /// returned by the backend, so expanding deep nodes does not rescan the path from record start.
+  pub fn json_list_children_at_offset(
+    &self,
+    session_id: &str,
+    meta: RecordMeta,
+    node_offset: u64,
+    cursor_offset: Option<u64>,
+    cursor_index: Option<u64>,
+    limit: usize,
+  ) -> Result<JsonChildrenPageOffset, CoreError> {
+    let (path_buf, format) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (PathBuf::from(&s.info.path), s.format.clone())
+    };
+    if format != FileFormat::Json {
+      return Err(CoreError::UnsupportedFormat(format));
+    }
+    // Basic safety: node_offset must be >= record_offset (we only support offsets within the record).
+    if node_offset < meta.byte_offset {
+      return Err(CoreError::InvalidArg(format!(
+        "node_offset {} is before record_offset {}",
+        node_offset, meta.byte_offset
+      )));
+    }
+    let limit = if limit == 0 { 50 } else { limit };
+    crate::formats::list_json_children_page_at_offset(
+      &path_buf,
+      node_offset,
+      cursor_offset,
+      cursor_index,
+      limit,
+      self.options.preview_max_chars,
+    )
+  }
+
+  /// IPC API (v2): json_node_summary_at_offset(session_id, meta, node_offset)
+  pub fn json_node_summary_at_offset(
+    &self,
+    session_id: &str,
+    meta: RecordMeta,
+    node_offset: u64,
+    max_items: Option<u64>,
+    max_scan_bytes: Option<u64>,
+  ) -> Result<JsonNodeSummaryOffset, CoreError> {
+    let (path_buf, format) = {
+      let sessions = self.sessions.lock();
+      let s = sessions
+        .get(session_id)
+        .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
+      (PathBuf::from(&s.info.path), s.format.clone())
+    };
+    if format != FileFormat::Json {
+      return Err(CoreError::UnsupportedFormat(format));
+    }
+    if node_offset < meta.byte_offset {
+      return Err(CoreError::InvalidArg(format!(
+        "node_offset {} is before record_offset {}",
+        node_offset, meta.byte_offset
+      )));
+    }
+    let max_items = max_items.unwrap_or(200_000);
+    let max_scan_bytes = max_scan_bytes.unwrap_or(64 * 1024 * 1024);
+    crate::formats::json_node_summary_at_offset(&path_buf, node_offset, max_items, max_scan_bytes)
   }
 
   /// Reserved for M3.

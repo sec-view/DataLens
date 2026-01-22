@@ -2,11 +2,18 @@ use std::path::PathBuf;
 
 use dh_core::{
   CoreEngine, ExportFormat, ExportRequest, ExportResult, RecordPage, SearchQuery, SearchResult,
-  RecordMeta, SessionInfo, Task,
+  RecordMeta, SessionInfo, Task, JsonChildrenPage, JsonPathSegment, JsonNodeSummary,
+  JsonChildrenPageOffset, JsonNodeSummaryOffset,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc;
 use std::path::Path;
+use std::sync::Mutex;
+
+/// Pending paths opened by the OS (e.g. double-click associated files on macOS).
+///
+/// We store them so the frontend can fetch them after it finishes booting.
+pub struct PendingOpenState(pub Mutex<Vec<String>>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -206,6 +213,18 @@ pub fn scan_folder_tree(
   })
 }
 
+/// Take (and clear) any pending OS-opened paths.
+///
+/// macOS may deliver "open file" events before the frontend is ready to receive them,
+/// so the UI should call this once on startup.
+#[tauri::command]
+pub fn take_pending_open_paths(state: tauri::State<'_, PendingOpenState>) -> Vec<String> {
+  let mut guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+  let out = guard.clone();
+  guard.clear();
+  out
+}
+
 #[tauri::command]
 pub async fn open_file(
   window: tauri::Window,
@@ -367,6 +386,98 @@ pub fn export(engine: tauri::State<'_, CoreEngine>, args: ExportArgs) -> Result<
   let out = PathBuf::from(args.output_path);
   engine
     .export(&args.session_id, args.request, args.format, out)
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonListChildrenArgs {
+  pub session_id: String,
+  pub meta: RecordMeta,
+  pub path: Vec<JsonPathSegment>,
+  pub cursor: Option<u64>,
+  pub limit: Option<u32>,
+}
+
+#[tauri::command]
+pub fn json_list_children(
+  engine: tauri::State<'_, CoreEngine>,
+  args: JsonListChildrenArgs,
+) -> Result<JsonChildrenPage, String> {
+  let limit = args.limit.unwrap_or(50) as usize;
+  engine
+    .json_list_children(&args.session_id, args.meta, args.path, args.cursor, limit)
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonNodeSummaryArgs {
+  pub session_id: String,
+  pub meta: RecordMeta,
+  pub path: Vec<JsonPathSegment>,
+  pub max_items: Option<u64>,
+  pub max_scan_bytes: Option<u64>,
+}
+
+#[tauri::command]
+pub fn json_node_summary(
+  engine: tauri::State<'_, CoreEngine>,
+  args: JsonNodeSummaryArgs,
+) -> Result<JsonNodeSummary, String> {
+  engine
+    .json_node_summary(&args.session_id, args.meta, args.path, args.max_items, args.max_scan_bytes)
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonListChildrenAtOffsetArgs {
+  pub session_id: String,
+  pub meta: RecordMeta,
+  pub node_offset: u64,
+  pub cursor_offset: Option<u64>,
+  pub cursor_index: Option<u64>,
+  pub limit: Option<u32>,
+}
+
+#[tauri::command]
+pub fn json_list_children_at_offset(
+  engine: tauri::State<'_, CoreEngine>,
+  args: JsonListChildrenAtOffsetArgs,
+) -> Result<JsonChildrenPageOffset, String> {
+  let limit = args.limit.unwrap_or(50) as usize;
+  engine
+    .json_list_children_at_offset(
+      &args.session_id,
+      args.meta,
+      args.node_offset,
+      args.cursor_offset,
+      args.cursor_index,
+      limit,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonNodeSummaryAtOffsetArgs {
+  pub session_id: String,
+  pub meta: RecordMeta,
+  pub node_offset: u64,
+  pub max_items: Option<u64>,
+  pub max_scan_bytes: Option<u64>,
+}
+
+#[tauri::command]
+pub fn json_node_summary_at_offset(
+  engine: tauri::State<'_, CoreEngine>,
+  args: JsonNodeSummaryAtOffsetArgs,
+) -> Result<JsonNodeSummaryOffset, String> {
+  engine
+    .json_node_summary_at_offset(
+      &args.session_id,
+      args.meta,
+      args.node_offset,
+      args.max_items,
+      args.max_scan_bytes,
+    )
     .map_err(|e| e.to_string())
 }
 

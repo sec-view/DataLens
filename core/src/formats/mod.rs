@@ -87,6 +87,87 @@ pub(crate) fn read_json_value_at_offset(
   crate::formats::json::read_json_value_at_offset(path, offset, max_bytes)
 }
 
+pub(crate) fn export_json_subtree_stream(
+  session_path: &Path,
+  record_offset: u64,
+  path_segments: &[crate::models::JsonPathSegment],
+  include_root: bool,
+  children: &[crate::models::JsonPathSegment],
+  out_format: crate::models::ExportFormat,
+  writer: &mut dyn std::io::Write,
+) -> Result<u64, CoreError> {
+  crate::formats::json::export_json_subtree_stream(
+    session_path,
+    record_offset,
+    path_segments,
+    include_root,
+    children,
+    out_format,
+    writer,
+  )
+}
+
+pub(crate) fn json_node_summary(
+  session_path: &Path,
+  record_offset: u64,
+  path_segments: &[crate::models::JsonPathSegment],
+  max_items: u64,
+  max_scan_bytes: u64,
+) -> Result<crate::models::JsonNodeSummary, CoreError> {
+  crate::formats::json::json_node_summary(
+    session_path,
+    record_offset,
+    path_segments,
+    max_items,
+    max_scan_bytes,
+  )
+}
+
+pub(crate) fn json_node_summary_at_offset(
+  session_path: &Path,
+  node_offset: u64,
+  max_items: u64,
+  max_scan_bytes: u64,
+) -> Result<crate::models::JsonNodeSummaryOffset, CoreError> {
+  crate::formats::json::json_node_summary_at_offset(session_path, node_offset, max_items, max_scan_bytes)
+}
+
+pub(crate) fn list_json_children_page(
+  path: &Path,
+  record_offset: u64,
+  path_segments: &[crate::models::JsonPathSegment],
+  cursor: u64,
+  limit: usize,
+  preview_max_chars: usize,
+) -> Result<crate::models::JsonChildrenPage, CoreError> {
+  crate::formats::json::list_json_children_page(
+    path,
+    record_offset,
+    path_segments,
+    cursor,
+    limit,
+    preview_max_chars,
+  )
+}
+
+pub(crate) fn list_json_children_page_at_offset(
+  path: &Path,
+  node_offset: u64,
+  cursor_offset: Option<u64>,
+  cursor_index: Option<u64>,
+  limit: usize,
+  preview_max_chars: usize,
+) -> Result<crate::models::JsonChildrenPageOffset, CoreError> {
+  crate::formats::json::list_json_children_page_at_offset(
+    path,
+    node_offset,
+    cursor_offset,
+    cursor_index,
+    limit,
+    preview_max_chars,
+  )
+}
+
 pub(crate) fn read_parquet_page(
   path: &Path,
   cursor: Cursor,
