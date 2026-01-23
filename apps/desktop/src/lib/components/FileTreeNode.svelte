@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tooltip } from '$lib/actions/tooltip';
   import type { FsNode } from '$lib/ipc';
 
   export let node: FsNode;
@@ -29,7 +30,7 @@
     <button class="twisty" type="button" on:click={onDirClick} disabled={busy} aria-label={isOpen ? '收起' : '展开'}>
       {#if isOpen}▾{:else}▸{/if}
     </button>
-    <button class="name dir" type="button" on:click={onDirClick} disabled={busy} title={node.path}>
+    <button class="name dir" type="button" on:click={onDirClick} disabled={busy} use:tooltip={{ text: node.path }}>
       {node.name}
     </button>
   {:else}
@@ -39,7 +40,7 @@
       type="button"
       on:click={() => onClickFile(node)}
       disabled={busy || !node.supported}
-      title={node.path}
+      use:tooltip={{ text: node.path }}
     >
       {node.name}
     </button>

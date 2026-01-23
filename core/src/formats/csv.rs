@@ -21,7 +21,7 @@ pub(crate) fn read_csv_page(
   cursor: Cursor,
   page_size: usize,
   preview_max_chars: usize,
-  raw_max_chars: usize,
+  _raw_max_chars: usize, // unused: CSV always shows full content in detail view
 ) -> Result<(LinesPageInternal, Option<Cursor>), CoreError> {
   let headers = read_csv_header(path).unwrap_or_default();
 
@@ -63,19 +63,16 @@ pub(crate) fn read_csv_page(
     // Provide a JSON-like raw for details:
     // - header line keeps original raw text (backward compatible with existing behavior/tests)
     // - data line becomes {"colA":"...", "colB":"..."} with keys from header row
-    let cell_max = raw_max_chars.min(2000).max(64);
+    // For CSV, always show full content in detail view (no truncation).
+    // These files typically have reasonable line/cell lengths.
     let raw = if line_no == 0 {
-      if line.chars().count() <= raw_max_chars {
-        Some(line.clone())
-      } else {
-        Some(truncate_chars(&line, raw_max_chars))
-      }
+      Some(line.clone())
     } else {
       let fields = parse_csv_line(&line);
       let mut obj = Map::new();
       for (i, h) in headers.iter().enumerate() {
         let v = fields.get(i).cloned().unwrap_or_default();
-        obj.insert(h.clone(), Value::String(truncate_chars(&v, cell_max)));
+        obj.insert(h.clone(), Value::String(v));
       }
       if fields.len() > headers.len() {
         obj.insert(
@@ -84,14 +81,13 @@ pub(crate) fn read_csv_page(
             fields[headers.len()..]
               .iter()
               .cloned()
-              .map(|s| Value::String(truncate_chars(&s, cell_max)))
+              .map(Value::String)
               .collect(),
           ),
         );
       }
       let raw_json = serde_json::to_string(&Value::Object(obj))
         .unwrap_or_else(|_| format!(r#"{{"__raw__":"{}"}}"#, sanitize_json_string(&line)));
-      // Keep JSON valid (do NOT truncate the entire JSON string).
       Some(raw_json)
     };
 

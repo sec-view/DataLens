@@ -42,3 +42,11 @@
 
 这些都属于可再生目录，删除后会在下次构建时恢复。
 
+---
+
+## 常见问题
+
+- **`vite: command not found` / `svelte-kit: command not found`**
+  - 通常是 devDependencies 没装（例如设置了 `NODE_ENV=production`）
+  - 解决：在 `apps/desktop/` 运行 `npm install --include=dev`
+

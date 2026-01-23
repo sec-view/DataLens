@@ -19,6 +19,7 @@
 - **`detect_format(path)`**：根据扩展名决定 `FileFormat`
 - **入口函数**：
   - `read_lines_page`（JSONL/CSV）
+  - `read_csv_page`（CSV 专用，保留 meta/截断策略）
   - `read_json_page` / `read_json_page_with_progress`（JSON）
   - `read_parquet_page`（Parquet）
 - **`search_current_page(page, query)`**：对 `page.records[*].preview` 做 substring 匹配（大小写可选）
@@ -72,6 +73,23 @@
   - root object：作为单条记录（`id=0`）
   - 多个顶层 JSON value（类似 JSON stream 保存成 `.json`）
 - 忽略头部 BOM、空白、NUL padding（测试覆盖了 trailing NUL）
+
+---
+
+## JSON lazy tree（用于超大单条 JSON 记录的结构浏览）
+
+当单条 JSON 记录过大（无法整体送入 IPC/或整体解析会卡死）时，UI 会切到“流式 JSON 树”：
+
+- **path 版本**（较早接口）：`list_json_children_page` / `json_node_summary`
+  - 每次展开深层节点，需要从记录起始按 path 扫描定位，深层/频繁展开会慢
+- **offset 版本（v2，UI 当前使用）**：`list_json_children_page_at_offset` / `json_node_summary_at_offset`
+  - 后端返回 `value_offset`（绝对 byte offset），前端沿 offset 继续展开
+  - 优点：展开深层节点不需要重复从 record 起始扫描 path，速度更稳定
+
+核心约束：
+
+- 仅对 `.json` 会话开放（其他格式不支持）
+- 为了安全与性能：children 分页、preview 截断、summary 计数有 `max_items/max_scan_bytes` 上限
 
 ---
 

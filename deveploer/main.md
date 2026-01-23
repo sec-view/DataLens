@@ -1,284 +1,118 @@
 ## 开发文档（Developer Guide）
 
-本文是一份**从零开始**开发 `datasets-helper` 的工程文档：定义明确的跨平台技术栈、工程结构、核心架构与协议约定，并给出可以按里程碑推进的实现路径。
+本文档是 `datasets_helper` 的**当前代码版**开发指南（不是“从零搭架子”的规划稿）。目标是让你在仓库现状下，能快速：
+
+- 跑起来（Tauri + SvelteKit + Rust core）
+- 定位功能入口（UI / IPC / core）
+- 理解关键协议（cursor、task、json_subtree、lazy-json-tree）
+- 打包发布（macOS dmg）
+
+> 目录名 `deveploer/` 是历史拼写，**先以现状为准**，文档中仍沿用该路径。
 
 ---
 
 ## 文档入口（按路径索引）
 
-> 你可以把这里当作“总目录”。每份文档都聚焦到一个**代码路径**：它负责什么、入口在哪里、核心模块/流程是什么。
+每份文档聚焦到一个**代码路径**（它负责什么、入口在哪里、核心流程是什么）：
 
-- **仓库总览**：[`deveploer/paths/00-repo-overview.md`](./paths/00-repo-overview.md)
-- **桌面端（前端）**：[`deveploer/paths/10-apps-desktop.md`](./paths/10-apps-desktop.md)
-  - **前端源码（SvelteKit）**：[`deveploer/paths/11-apps-desktop-src.md`](./paths/11-apps-desktop-src.md)
-  - **桌面壳（Tauri）**：[`deveploer/paths/12-apps-desktop-src-tauri.md`](./paths/12-apps-desktop-src-tauri.md)
-- **核心引擎（Rust / dh_core）**：[`deveploer/paths/20-core.md`](./paths/20-core.md)
-  - **core/src 模块拆解**：[`deveploer/paths/21-core-src.md`](./paths/21-core-src.md)
-  - **formats（分页读取实现）**：[`deveploer/paths/22-core-formats.md`](./paths/22-core-formats.md)
-- **测试（test/ 目录规范与记录）**：[`deveploer/paths/30-test.md`](./paths/30-test.md)
-- **开发脚本（dev.sh）**：[`deveploer/paths/31-dev-sh.md`](./paths/31-dev-sh.md)
-
----
-
-## 目标（Goals）
-
-- **跨平台单代码库**：同一套代码同时支持 **macOS 与 Windows**（未来可扩展 Linux），不维护两套 UI/两套业务逻辑。
-- **秒级首屏 + 低内存**：超大文件也能快速打开并流式浏览，不做全量加载。
-- **面向数据工作流**：适配大模型数据集检查、抽样、排错定位、审阅与协作导出。
-
-## 非目标（Non-Goals）
-
-- 不做通用 IDE/编辑器（以“浏览/审阅/定位”为主）。
-- 第一阶段不做重度 ETL（转换/清洗可以后置）。
-
-## 支持格式（阶段性目标）
-
-- **M1**：`.jsonl`、`.csv`（先“按行预览”保证首屏速度）
-- **M3**：`.parquet`（通过 DuckDB 做按需读取、过滤与统计）
-- `.json`：后续补结构树视图与大文件策略
+- **仓库总览**：`deveploer/paths/00-repo-overview.md`
+- **桌面端（前端）**：`deveploer/paths/10-apps-desktop.md`
+  - **前端源码（SvelteKit）**：`deveploer/paths/11-apps-desktop-src.md`
+  - **桌面壳（Tauri）**：`deveploer/paths/12-apps-desktop-src-tauri.md`
+- **核心引擎（Rust / dh_core）**：`deveploer/paths/20-core.md`
+  - **core/src 模块拆解**：`deveploer/paths/21-core-src.md`
+  - **formats（分页读取实现）**：`deveploer/paths/22-core-formats.md`
+- **测试规范与现状**：`deveploer/paths/30-test.md`
+- **开发脚本（dev.sh）**：`deveploer/paths/31-dev-sh.md`
 
 ---
 
-## 技术选型（定案）
+## 当前能力概览（以代码为准）
 
-- **桌面壳**：**Tauri**
-- **核心引擎**：**Rust（stable）**
-- **UI**：**SvelteKit（TypeScript）**
-- **包管理器**：**pnpm（推荐）/ npm（兼容）**
-- **数据引擎（M3 引入）**：**DuckDB**
-- **持久化（Recent/书签/配置）**：**SQLite（rusqlite）**
-
-选择理由（与目标强绑定）：
-
-- Tauri + Rust 能把性能关键路径（I/O、解析、索引、导出）放到原生侧，UI 只渲染“当前页”，从源头控制内存与卡顿。
-- SvelteKit 适合工具类桌面 UI（轻量、组件简单），并天然跨平台复用。
-- DuckDB 让 Parquet/CSV 的过滤/统计/列裁剪具备工程上的确定性（谓词下推、按需读取）。
-
----
-
-## 目录结构（从零初始化后必须保持）
-
-- `apps/desktop/`
-  - `src/`：SvelteKit 前端（UI + 状态管理）
-  - `src-tauri/`：Tauri 壳 + 命令入口（仅做“桥接”）
-- `crates/dh_core/`：Rust 核心（流式读取/分页/搜索/导出/索引）
-- `crates/dh_storage/`：Rust 持久化（SQLite：Recent/书签/配置/任务历史）
-- `crates/dh_duckdb/`：Rust DuckDB 适配（阶段性引入：M3）
-- `test_data/`：示例数据（可脱敏）
+- **支持格式**：`.jsonl`、`.csv`、`.json`、`.parquet`
+- **分页**：基于 cursor token（opaque），前端不解析
+- **检索**：
+  - `current_page`：同步匹配最后一页（低成本）
+  - `scan_all`：后台任务（可取消、可分页取命中）
+  - `.json` 的 `scan_all`：**仅支持 root array**（见 core 实现）
+- **导出**：
+  - selection / search_task
+  - `.json` 额外支持 `json_subtree`（导出当前记录内的子树/子项，支持超大记录的流式导出）
+- **超大 JSON 详情**：提供 **流式 JSON 树**（按需加载 children，不需要把整条记录解析到内存）
+- **文件夹树**：可扫描目录生成文件树，标记哪些格式可打开
+- **系统集成**：macOS “双击关联文件 / Open With” 可把 path 交给正在运行的 app 处理
 
 ---
 
-## 开发环境（macOS 优先，但必须保证可扩展到 Windows）
+## 快速开始（开发）
 
-- **macOS 13+**
-- **Xcode Command Line Tools**（Tauri 构建/签名需要）
-- **Rust**：`rustup`（stable）
-- **Node.js**：LTS（建议 Node 20 LTS 或更新的 LTS）
-- **pnpm（推荐）** 或 **npm（兼容）**
+### 前置依赖
 
----
+- **Rust stable**（`rustup`）
+- **Node.js**（建议 LTS）
+- **npm**（仓库脚本默认用 npm）
 
-## 初始化与开发命令（从零开始）
+### 安装依赖
 
-> 这里给出“应该怎么做”的标准流程。实际命令细节按 Tauri 官方文档落地即可，但工程结构与约定以本文件为准。
+在 `apps/desktop/`：
 
-- **初始化 Tauri 项目**：创建 `apps/desktop/`（包含 `src/` 与 `src-tauri/`）
-- **初始化 Rust workspace**：创建 `crates/*`，并在根目录统一管理依赖与版本策略
-- **开发模式**：
-  - 前端热更新 + Tauri dev
-  - Rust 侧命令与核心 crate 走 workspace 引用
+- `npm install`
 
----
+如果你本机设置了 `NODE_ENV=production`（或 npm 配置导致跳过 devDependencies），会出现 `vite: command not found` / `svelte-kit: command not found`。此时用：
 
-## 产品交互（必须实现的 UI 框架）
+- `npm install --include=dev`
 
-### 主界面布局
+### 开发启动
 
-- **最左侧：会话（Session）面板**：
-  - 仅用于展示**当前打开文件**与**历史会话/最近打开记录**
-  - 支持**拖拽调整宽度**（可滑动改变大小）
-  - **默认宽度较小**，并且**默认收起**（缩进状态），需要时再展开
-  - 注：这里不承载搜索与导出配置，避免左侧面板过重
-- **中间列表**：分页记录列表（虚拟滚动/分页加载）
-- **右侧详情**：选中记录详情（语法高亮、长字段折叠、复制等）
+推荐从仓库根目录启动：
 
-### 顶部工具条
+- `./dev.sh`（默认 `tauri` 模式，会检查/释放 5173，并在启动前 `vite build`）
 
-- Open（系统文件选择器）
-- Search / Filter（统一入口；在工具条中**横向排列**参数与控件）
-- Export（以**按钮**形式呈现；点击后打开**子窗口/弹窗**来完成导出配置与执行）
-- 任务进度（后台任务：扫描/导出/索引/统计）
+只启动 Vite：
+
+- `./dev.sh vite`
+
+### 核心测试（Rust）
+
+在仓库根目录：
+
+- `cargo test --manifest-path core/Cargo.toml`
 
 ---
 
-## 核心架构（必须遵守）
+## 架构约定（读代码时的心智模型）
 
-### 分层原则
-
-- **UI 层**：只负责渲染与交互，不直接读文件、不做重解析。
-- **命令层（Tauri commands）**：薄桥接，参数校验 + 调用核心引擎。
-- **核心引擎（Rust）**：I/O、解析、分页、搜索、导出、索引、统计。
-
-### 核心数据模型（建议）
-
-- `SessionInfo`：`session_id`, `path`, `format`, `created_at`
-- `Record`：`id`, `preview`, `raw?`, `meta?`
-- `RecordPage`：`records[]`, `next_cursor`, `reached_eof`
-- `CursorToken`：**opaque string**（前端不解释）
+- **UI（SvelteKit）**：只做交互与渲染，所有 I/O/解析/大计算都在 Rust
+- **IPC（Tauri commands）**：薄桥接（参数整理 + 调用 core + 必要的线程/事件处理）
+- **core（Rust / dh_core）**：格式检测、分页、搜索任务、导出、SQLite 持久化、JSON lazy tree
 
 ---
 
-## Rust ↔ UI 协议（IPC API，必须按此实现）
+## IPC 契约（重要：稳定语义）
 
-> 目标：即使底层实现从“按行扫描”升级为“索引/duckdb”，前端也无需改接口语义。
+下面这些接口语义要保持稳定（实现可演进，语义不随意变）：
 
-- **打开文件**
-  - `open_file(path) -> { session: SessionInfo, first_page: RecordPage }`
-- **分页读取**
-  - `next_page(session_id, cursor, page_size) -> RecordPage`
-  - `cursor` 是后端返回的 **opaque token**，前端原样回传
-- **搜索/过滤**
-  - `search(session_id, query, mode) -> SearchResult`
-  - `mode`：`current_page | scan_all | indexed`（演进路径固定）
-- **导出**
-  - `export(session_id, selection, format, output_path) -> ExportResult`
-- **统计（M3）**
-  - `get_stats(session_id, spec) -> StatsResult`
-
----
-
-## 搜索与过滤（语义与语法约定）
-
-目标：在不同数据源（JSONL 扫描 / DuckDB / 索引）之间保持**一致的用户心智与 API 语义**。
-
-### SearchQuery（统一查询对象）
-
-- `query.text`：用户输入的搜索文本
-- `query.mode`：
-  - `current_page`：只在当前页 records 中匹配
-  - `scan_all`：流式扫描整个文件（必须可取消）
-  - `indexed`：基于索引定位（M4 可选）
-- `query.case_sensitive`：默认 `false`
-
-> M1 实现约定：对 JSONL/CSV（按行预览）先做“raw line 的 substring 匹配”，不做昂贵的结构化解析；M3 之后对 DuckDB 数据源可扩展为列级过滤与 SQL/表达式适配。
-
-### Filter（阶段性约定）
-
-- **M1**：仅支持 `search`（不实现复杂 filter 语法，避免前期架构漂移）
-- **M3（DuckDB）**：支持“列过滤”
-  - UI 侧构造 `FilterSpec`（列名、操作符、值）
-  - Rust 侧在 DuckDB 里编译为安全的参数化表达式（禁止字符串拼 SQL）
+- `open_file(path, request_id?) -> { session, first_page }`
+- `next_page(session_id, cursor?, page_size?) -> RecordPage`
+- `search(session_id, query) -> SearchResult`
+  - `scan_all` 返回 `task`，用 `get_task / search_task_hits_page` 取结果
+- `cancel_task(task_id)`
+- `export({ session_id, request, format, output_path }) -> ExportResult`
+  - `request.type`：`selection | search_task | json_subtree`
+- `get_record_raw(session_id, meta) -> String`（用于详情截断后的“加载完整内容”）
+- 文件树与系统打开：
+  - `path_kind(path) -> file|dir|missing|other`
+  - `scan_folder_tree(path, max_depth?, max_nodes?) -> FolderTreeResponse`
+  - `take_pending_open_paths() -> string[]`（UI 启动后补取 OS 传入的路径）
+- JSON lazy tree（超大 JSON 记录）：
+  - `json_list_children_at_offset(...)`
+  - `json_node_summary_at_offset(...)`
 
 ---
 
-## 文件格式实现策略（必须按顺序）
+## 常见问题（Troubleshooting）
 
-### JSONL（M1）
-
-- 流式按行读取（chunk + 分割换行）
-- `preview` 截断（避免 UI 长字符串撑爆内存）
-- 跨页搜索：先扫描式（可取消），后索引式（M4 可选）
-
-### CSV（M1/M3）
-
-- M1：先做“按行预览”（不做严格 CSV 解析，保证首屏）
-- M3：接 DuckDB 后切换为“列视图 + 条件过滤 + 统计”
-
-### Parquet（M3）
-
-- 通过 DuckDB：列裁剪 + 谓词下推 + 分页输出
-
----
-
-## 后台任务系统（进度 / 取消 / 资源上限）
-
-凡是可能“扫描全文件/运行较久”的操作（跨页搜索、导出、统计、索引构建）必须走统一任务系统：
-
-- **任务模型**：`Task { id, kind, started_at, progress, cancellable }`
-- **取消**：UI 触发 `cancel_task(task_id)`；Rust 侧必须定期检查取消信号并尽快退出
-- **资源上限**：
-  - 并发数限制（避免同时多个全量扫描）
-  - 内存上限策略（分页缓存/字符串截断/结果集上限）
-  - 结果集上限（例如最多返回 N 条命中；支持“继续加载更多命中”）
-
----
-
-## 性能与稳定性约束（验收标准）
-
-- **首屏**：打开文件后尽快返回 `first_page`（目标：秒级）
-- **内存**：禁止全量读入；UI 只保留“当前页 + 少量缓存页”
-- **后台任务**：搜索/导出/索引/统计必须可取消，且不阻塞 UI
-- **异常处理**：文件编码异常、超长行、损坏 parquet、权限不足都要可提示可恢复
-
----
-
-## 持久化与配置（必须统一）
-
-- 使用 SQLite（`dh_storage`）存储：
-  - Recent/书签（含存在性标记、最后打开时间）
-  - 用户偏好（默认浏览模式、每页条数、字段截断长度、主题等）
-  - 可选：任务历史（上次搜索条件、上次导出位置）
-
-### SQLite 表结构（建议定稿，避免后续迁移成本）
-
-- `recent_files`
-  - `id`（PK）
-  - `path`（unique）
-  - `display_name`
-  - `last_opened_at`（unix ms）
-  - `exists`（bool）
-  - `pinned`（bool，书签/置顶可复用）
-- `settings`
-  - `key`（PK）
-  - `value_json`（统一用 JSON 存储，便于扩展）
-
----
-
-## 平台集成（macOS/Windows 都要考虑，但实现尽量薄）
-
-- **文件关联打开**：`.json/.jsonl/.csv/.parquet`
-- **文件权限**：
-  - macOS：沙盒与 security-scoped bookmarks（如启用沙盒发行）
-  - Windows：标准路径权限即可（但要处理文件被占用/锁定）
-
----
-
-## 测试与性能基准（必须有）
-
-- **单元测试（Rust）**
-  - 流式分页：不同换行（LF/CRLF）、超长行、非 UTF-8 的容错
-  - 游标一致性：多次 `next_page` 不重复/不丢行
-- **集成测试（最小闭环）**
-  - 打开文件 → 首页 → 翻页 → 搜索（current_page/scan_all）→ 导出
-- **性能基准（Bench）**
-  - 首屏耗时（打开到 `first_page`）
-  - 连续翻页吞吐
-  - 全量扫描搜索耗时（含可取消）
-
----
-
-## 里程碑（从零推进）
-
-- **M1（可用的核心预览）**
-  - Tauri + SvelteKit + Rust workspace
-  - JSONL/CSV：open + 分页 + 详情 + Recent
-  - 当前页搜索
-- **M2（核心价值）**
-  - 跨页扫描式搜索（可取消）+ 导出选中/导出结果
-  - 书签/配置持久化（SQLite）
-- **M3（Parquet + 统计）**
-  - DuckDB 接入：Parquet/CSV 的过滤与统计
-  - 列视图、TopK/缺失率等基础统计
-- **M4（体验与规模）**
-  - 可选：增量索引、断点恢复、性能打磨、主题/快捷键
-
----
-
-## 代码规范（必须执行）
-
-- 性能关键路径只能在 Rust；前端不做重解析。
-- 任何可能扫描全文件的操作必须：
-  - 显示进度
-  - 支持取消
-  - 有明确的资源上限（时间/内存/并发）
+- **5173 被占用导致 dev 起不来**：`./dev.sh` 默认会尝试释放端口；如不希望自动 kill，占用端口时设置 `FORCE_KILL=0`
+- **UI 修改没生效**：`./dev.sh` 默认会清理 Svelte/Vite 缓存并 `vite build`；想加快启动可设置 `REBUILD_FRONTEND=0` / `CLEAN_FRONTEND=0`
+- **详情“加载完整内容”失败**：受 Tauri IPC 大小上限影响，`core` 侧对单条记录读取有 50MB safety cap；超大 JSON 会切到 `JsonLazyTree` 流式浏览与/或提示用导出查看
 

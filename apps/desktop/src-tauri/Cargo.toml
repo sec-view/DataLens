@@ -26,3 +26,8 @@ cocoa = "0.24"
 # DO NOT REMOVE.
 custom-protocol = ["tauri/custom-protocol"]
 
+# Silence `#[warn(unexpected_cfgs)]` from older `objc` macros that reference
+# `cfg(feature = "cargo-clippy")` at the call site.
+# (Rust's `check-cfg` validates feature values against this list.)
+cargo-clippy = []
+

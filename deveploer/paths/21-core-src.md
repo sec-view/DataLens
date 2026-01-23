@@ -23,7 +23,12 @@
     - `current_page`（同步）
     - `scan_all`（后台任务）
     - `indexed`（未实现，预留）
-  - `ExportRequest`：`selection{record_ids}` 或 `search_task{task_id}`
+  - `ExportRequest`：
+    - `selection{record_ids}`：导出选中记录（按行/按 row id）
+    - `search_task{task_id}`：导出 scan_all 任务命中集合
+    - `json_subtree{meta,path,include_root,children}`：导出“当前 JSON 记录”中的子树（支持超大记录流式导出）
+  - JSON lazy tree（用于超大 JSON 记录的结构浏览）：
+    - `JsonChildrenPageOffset / JsonNodeSummaryOffset`（UI 当前使用的 offset 版本）
 
 ---
 
@@ -36,7 +41,10 @@
   - `search`
   - `get_task / cancel_task / search_task_hits_page`
   - `export`
-  - `get_stats`（预留，未实现）
+  - `get_record_raw`：读取完整记录（用于详情截断后的“加载完整内容”）
+  - `json_list_children/json_node_summary`：JSON lazy tree（path 版本）
+  - `json_list_children_at_offset/json_node_summary_at_offset`：JSON lazy tree（offset 版本，性能更好）
+  - `get_stats`（预留）
 - **关键点**：
   - **SessionState** 缓存 `last_page`，用于 current_page 搜索
   - cursor token 使用 `cursor::{encode_cursor, decode_cursor}`（opaque）
@@ -60,6 +68,7 @@
   - `formats/lines.rs`：JSONL/CSV（按行）分页
   - `formats/json.rs`：`.json` 流式分页（支持 root array、object、以及“多顶层值”）
   - `formats/parquet.rs`：通过 embedded DuckDB 分页读 Parquet
+  - `formats/csv.rs`：CSV 的分页读取（支持 preview/raw 截断、meta 定位）
 
 ---
 
@@ -78,10 +87,11 @@
 
 - **职责**：导出逻辑（Selection 或 SearchTask）。
 - **当前约束**：
-  - 仅支持 JSONL/CSV（逐行导出）
-  - 对 Parquet/JSON 暂不支持（语义与实现需另设计）
+  - 支持：JSONL/CSV/JSON/Parquet →（json/jsonl/csv 的一部分组合转换）
+  - 对 `.json` 额外支持 `json_subtree`（可对超大记录做流式导出，不需要 full parse）
 - **实现要点**：
   - 对输入文件逐行扫描，命中 `record_ids` 就写出（保持原始行内容，统一换行为 `\n`）
+  - `json_subtree` 走 formats 的 stream 导出实现（避免一次性加载整条 JSON 记录）
 
 ---
 

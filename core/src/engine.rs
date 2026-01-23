@@ -491,11 +491,10 @@ impl CoreEngine {
       return crate::formats::read_json_value_at_offset(&path, meta.byte_offset, MAX_RECORD_BYTES);
     }
     if format == FileFormat::Parquet {
-      return crate::formats::read_parquet_row_raw(
-        &path,
-        meta.line_no,
-        self.options.raw_max_chars,
-      );
+      // For get_record_raw, we want the full content without truncation.
+      // Use a very large value to effectively disable per-cell char limits.
+      const FULL_RAW_MAX_CHARS: usize = 100_000_000;
+      return crate::formats::read_parquet_row_raw(&path, meta.line_no, FULL_RAW_MAX_CHARS);
     }
 
     if meta.byte_len > MAX_RECORD_BYTES {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tooltip } from '$lib/actions/tooltip';
   import { dialogSave } from '$lib/platform';
   import {
     exportToFile,
@@ -214,7 +215,7 @@
         type="button"
         class="jlt-action"
         on:click|stopPropagation={() => onExportNodeJsonl()}
-        title="导出该节点（jsonl）"
+        use:tooltip={{ text: '导出该节点（jsonl）' }}
         aria-label="导出该节点（jsonl）"
         disabled={loading}
       >

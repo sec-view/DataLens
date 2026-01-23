@@ -8,6 +8,9 @@
   - 当前页同步搜索
   - JSONL/CSV 全量扫描搜索（后台任务，可取消）
 - **导出**：导出选中记录 / 导出搜索任务命中
+- **超大 JSON 能力**：
+  - `get_record_raw`：按 meta 定位读取完整记录（受 50MB safety cap 保护）
+  - JSON lazy tree：按需列举子节点与摘要统计（用于“超大记录流式结构浏览”）
 - **持久化（SQLite）**：recent files、settings（为后续 UI 会话/配置做准备）
 
 ---
@@ -43,9 +46,18 @@
   - `current_page`：同步对 “最后一次返回的页面” 做 substring 匹配
   - `scan_all`：启动后台任务扫描 JSONL/CSV，可取消，可分页读取命中
 - **导出**
-  - 当前实现仅支持 JSONL/CSV（逐行语义明确）
+  - 支持 selection / search_task
+  - `.json` 额外支持 `json_subtree`（导出当前记录的子树/子项；可流式导出）
 - **持久化**
   - `open_file` 会 `touch_recent(path)` 写入 SQLite recent_files（目前 UI 未读取）
+
+---
+
+## 重要现实约束（避免踩坑）
+
+- **`.json` 的 `scan_all`**：仅支持 root array（文件起始必须是 `[`，忽略 BOM/空白）
+- **IPC 大小限制**：单条记录过大时不要默认把 full raw 放进 `Record.raw`；UI 通过 `get_record_raw` 按需加载
+- **超大 JSON 结构浏览**：优先使用 offset 版 JSON lazy tree（避免深层展开反复 path 扫描）
 
 ---
 

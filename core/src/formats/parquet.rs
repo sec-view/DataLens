@@ -51,7 +51,10 @@ pub(crate) fn read_parquet_page(
     .query(duckdb::params![path_str, limit_i64, offset_i64])
     .map_err(|e| CoreError::InvalidArg(format!("Parquet 读取失败：{e}")))?;
 
-  let cell_max = raw_max_chars.min(2000).max(64);
+  // For parquet detail view, show full content without truncation.
+  // The `raw_max_chars` param is ignored for parquet to ensure complete field display.
+  let _ = raw_max_chars;
+  let cell_max = usize::MAX;
 
   while let Some(row) = rows
     .next()
@@ -152,7 +155,8 @@ pub(crate) fn read_parquet_row_raw(
 
   let col_count = row.as_ref().column_count();
   let mut obj = Map::with_capacity(col_count);
-  let cell_max = raw_max_chars.min(2000).max(64);
+  // Use raw_max_chars directly for full content retrieval.
+  let cell_max = raw_max_chars;
   for i in 0..col_count {
     let key = row
       .as_ref()

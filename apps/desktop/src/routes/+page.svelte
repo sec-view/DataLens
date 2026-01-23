@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { tooltip } from '$lib/actions/tooltip';
   import { clipboardWriteText, dialogOpen, dialogSave, eventListen, isTauri } from '$lib/platform';
   import JsonTree from '$lib/components/JsonTree.svelte';
   import JsonLazyTree from '$lib/components/JsonLazyTree.svelte';
@@ -939,6 +940,10 @@
           detailJsonErr = String(e?.message ?? e);
         }
       }
+
+      // 成功加载完整内容后，更新截断状态
+      detailTruncated = false;
+      detailCanLoadFull = false;
     } catch (e: any) {
       if (token !== detailFetchToken) return;
       const msg = String(e?.message ?? e);
@@ -1487,10 +1492,10 @@
     <button on:click={onPickFile} disabled={busy}>打开文件…</button>
     <button on:click={onPickFolder} disabled={busy}>打开文件夹…</button>
     {#if !isTauriEnv}
-      <button on:click={() => openFilePath(demoFiles[0].path)} disabled={busy} title="Web 测试模式：加载内置示例数据">
+      <button on:click={() => openFilePath(demoFiles[0].path)} disabled={busy} use:tooltip={{ text: 'Web 测试模式：加载内置示例数据' }}>
         打开示例数据
       </button>
-      <button on:click={() => scanFolderPath('demo://root')} disabled={busy} title="Web 测试模式：加载示例文件夹树">
+      <button on:click={() => scanFolderPath('demo://root')} disabled={busy} use:tooltip={{ text: 'Web 测试模式：加载示例文件夹树' }}>
         打开示例文件夹
       </button>
     {/if}
@@ -1515,7 +1520,13 @@
   {#if errorMsg}
     <div class="error-banner" role="alert">
       <div class="error-text">{errorMsg}</div>
-      <button class="icon-btn" type="button" on:click={() => (errorMsg = null)} aria-label="关闭错误提示">
+      <button
+        class="icon-btn"
+        type="button"
+        on:click={() => (errorMsg = null)}
+        aria-label="关闭错误提示"
+        use:tooltip={{ text: '关闭错误提示' }}
+      >
         ×
       </button>
     </div>
@@ -1538,7 +1549,7 @@
           type="button"
           on:click={() => setSidebarCollapsed(!sidebarCollapsed)}
           aria-label={sidebarCollapsed ? '展开 Session 面板' : '收起 Session 面板'}
-          title={sidebarCollapsed ? '展开' : '收起'}
+          use:tooltip={{ text: sidebarCollapsed ? '展开 Session 面板' : '收起 Session 面板' }}
         >
           {#if sidebarCollapsed}»{:else}«{/if}
         </button>
@@ -1593,7 +1604,7 @@
           {#if recentFiles.length > 0}
             <div class="recent">
               {#each recentFiles as p (p)}
-                <button class="recent-item" type="button" title={p} on:click={() => onOpenRecent(p)} disabled={busy}>
+                <button class="recent-item" type="button" on:click={() => onOpenRecent(p)} disabled={busy} use:tooltip={{ text: p }}>
                   {p}
                 </button>
               {/each}
@@ -1695,7 +1706,7 @@
                   on:click={openRecordFocusModal}
                   disabled={!detailJsonOk || session?.format !== 'json'}
                   aria-label="选择 JSON 节点作为记录列表"
-                  title="选择 JSON 节点作为记录列表"
+                  use:tooltip={{ text: '选择 JSON 节点作为记录列表' }}
                 >
                   ⎘
                 </button>
@@ -1946,7 +1957,7 @@
                 on:click={openDetailFocusModal}
                 disabled={!detailJsonOk}
                 aria-label="选择 JSON 节点作为详情视图根"
-                title="选择 JSON 节点作为详情视图根"
+                use:tooltip={{ text: '选择 JSON 节点作为详情视图根' }}
               >
                 ⎘
               </button>
@@ -1957,7 +1968,7 @@
                 role="switch"
                 aria-checked={detailDefaultExpand}
                 on:click={() => (detailDefaultExpand = !detailDefaultExpand)}
-                title="切换 JSON 是否全部展开"
+                use:tooltip={{ text: '切换 JSON 是否全部展开' }}
               >
                 <span class="switch-label">全部展开</span>
                 <span class="switch-track" aria-hidden="true">
@@ -1999,7 +2010,7 @@
                   on:click={onCopyDetailJson}
                   disabled={detailCopying}
                   aria-label="复制当前详情为格式化 JSON"
-                  title={detailCopied ? '已复制' : '复制当前详情为格式化 JSON'}
+                  use:tooltip={{ text: detailCopied ? '已复制' : '复制当前详情为格式化 JSON' }}
                 >
                   ⧉
                 </button>
@@ -2057,7 +2068,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-label="导出配置">
       <div class="modal-head">
         <div class="modal-title">导出</div>
-        <button class="icon-btn" type="button" on:click={() => (exportModalOpen = false)} aria-label="关闭">
+        <button class="icon-btn" type="button" on:click={() => (exportModalOpen = false)} aria-label="关闭" use:tooltip={{ text: '关闭' }}>
           ×
         </button>
       </div>
@@ -2094,7 +2105,13 @@
     <div class="modal modal-wide" role="dialog" aria-modal="true" aria-label="选择 JSON 节点">
       <div class="modal-head">
         <div class="modal-title">选择 JSON 节点（作为记录列表）</div>
-        <button class="icon-btn" type="button" on:click={() => (recordFocusModalOpen = false)} aria-label="关闭">
+        <button
+          class="icon-btn"
+          type="button"
+          on:click={() => (recordFocusModalOpen = false)}
+          aria-label="关闭"
+          use:tooltip={{ text: '关闭' }}
+        >
           ×
         </button>
       </div>
@@ -2138,7 +2155,13 @@
     <div class="modal modal-wide" role="dialog" aria-modal="true" aria-label="选择 JSON 节点（详情）">
       <div class="modal-head">
         <div class="modal-title">选择 JSON 节点（作为详情视图根）</div>
-        <button class="icon-btn" type="button" on:click={() => (detailFocusModalOpen = false)} aria-label="关闭">
+        <button
+          class="icon-btn"
+          type="button"
+          on:click={() => (detailFocusModalOpen = false)}
+          aria-label="关闭"
+          use:tooltip={{ text: '关闭' }}
+        >
           ×
         </button>
       </div>

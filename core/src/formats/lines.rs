@@ -16,7 +16,7 @@ pub(crate) fn read_lines_page(
   cursor: Cursor,
   page_size: usize,
   preview_max_chars: usize,
-  raw_max_chars: usize,
+  _raw_max_chars: usize, // unused: JSONL always shows full content in detail view
 ) -> Result<(LinesPageInternal, Option<Cursor>), CoreError> {
   let mut file = File::open(path)?;
   let file_len = file.metadata().ok().map(|m| m.len()).unwrap_or(0);
@@ -52,11 +52,9 @@ pub(crate) fn read_lines_page(
 
     let line = String::from_utf8_lossy(&buf).to_string();
     let preview = truncate_chars(&line, preview_max_chars);
-    let raw = if line.chars().count() <= raw_max_chars {
-      Some(line.clone())
-    } else {
-      Some(truncate_chars(&line, raw_max_chars))
-    };
+    // For JSONL, always show full content in detail view (no truncation).
+    // These files typically have reasonable line lengths.
+    let raw = Some(line.clone());
 
     records.push(Record {
       id: line_no,

@@ -29,6 +29,12 @@
     - `current_page`：直接拿到 `hits`
     - `scan_all`：先拿到 taskId，轮询任务，再分页读取 hits
   - 导出：支持导出“选中记录”或“全量搜索结果”
+- 目录/拖拽：
+  - 支持打开文件夹生成“文件树”（可展开、可点击打开支持格式的文件）
+  - 支持拖拽文件/文件夹到 Session 面板（Tauri 下优先用 `tauri://file-drop` 获取路径）
+- 超大 JSON：
+  - 详情面板在必要时启用 `JsonLazyTree`（按需加载 children 的流式结构树）
+  - 支持导出 `json_subtree`（从当前记录导出子树/子项）
 - **注意**：目前 “最近打开文件” 列表在前端用 `localStorage` 维护（并非读取 core 的 SQLite recent）。
 
 ---
@@ -38,6 +44,9 @@
 - **桥接 `dh_core::CoreEngine`**
   - `open_file`：文件 < 50MB 时直接打开；>= 50MB 时启用进度事件（`window.emit("open_file_progress", ...)`）
   - `next_page/search/get_task/search_task_hits_page/cancel_task/export`：薄封装，基本是 `engine.xxx(...).map_err(to_string)`
+  - `get_record_raw`：读取完整记录（用于详情截断后的“加载完整内容”）
+  - `path_kind/scan_folder_tree/take_pending_open_paths`：文件树与 OS 打开路径
+  - `json_list_children*_at_offset/json_node_summary*_at_offset`：JSON 流式树 API
 - **并发/阻塞策略**
   - `open_file` 使用 `tauri::async_runtime::spawn_blocking`，避免阻塞 UI 线程
 
