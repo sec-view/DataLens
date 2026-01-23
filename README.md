@@ -16,6 +16,11 @@ A desktop app for browsing huge dataset files with **seconds-to-first-screen** p
 - **Designed for LLM dataset workflows**: inspection, cleaning/debugging, sampling review, and export of selections/search results.
 - **Practical formats support**: JSONL / CSV / JSON / Parquet (via DuckDB).
 
+### Parsing engine upgrade (handles larger files)
+
+- **More robust JSONL**: line-based streaming scan, but only transfers a bounded prefix to the UI to avoid IPC/memory blowups from ultra-long lines.
+- **Better long-record UX**: detail view now shows up to **40,000** characters by default; for even larger records use the streaming JSON tree (JsonLazyTree).
+
 ## Install (macOS)
 
 Download the ready-to-install **`.dmg`** from [GitHub Releases](../../releases/latest).

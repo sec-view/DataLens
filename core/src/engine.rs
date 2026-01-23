@@ -55,7 +55,7 @@ impl Default for CoreOptions {
     Self {
       default_page_size: 10,
       preview_max_chars: 300,
-      raw_max_chars: 8_000,
+      raw_max_chars: 40_000,
       max_concurrent_tasks: 2,
       storage: StorageOptions::default(),
     }
@@ -352,7 +352,8 @@ impl CoreEngine {
         .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
       (PathBuf::from(&s.info.path), s.format.clone())
     };
-    if format != FileFormat::Json {
+    // Allow JSONL records to reuse the same "parse one JSON value at offset" streaming tree.
+    if format != FileFormat::Json && format != FileFormat::Jsonl {
       return Err(CoreError::UnsupportedFormat(format));
     }
     // Basic safety: node_offset must be >= record_offset (we only support offsets within the record).
@@ -389,7 +390,8 @@ impl CoreEngine {
         .ok_or_else(|| CoreError::UnknownSession(session_id.to_string()))?;
       (PathBuf::from(&s.info.path), s.format.clone())
     };
-    if format != FileFormat::Json {
+    // Allow JSONL records to reuse the same "parse one JSON value at offset" streaming tree.
+    if format != FileFormat::Json && format != FileFormat::Jsonl {
       return Err(CoreError::UnsupportedFormat(format));
     }
     if node_offset < meta.byte_offset {

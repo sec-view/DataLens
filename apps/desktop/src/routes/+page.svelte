@@ -1286,8 +1286,8 @@
       if (metaLen > 0 && metaLen > IPC_SAFE_MAX_BYTES) {
         detailCanLoadFull = false;
         detailTooLargeHint = `记录过大（约 ${Math.ceil(metaLen / (1024 * 1024))}MB），无法在详情中加载完整内容。`;
-        // For huge JSON records, enable streaming tree mode by default.
-        if (session?.format === 'json') {
+        // For huge JSON/JSONL records, enable streaming tree mode by default.
+        if (session?.format === 'json' || session?.format === 'jsonl') {
           detailStreamMode = true;
         }
       } else {
@@ -2031,7 +2031,7 @@
                 {/key}
               </div>
             {:else}
-              {#if detailStreamMode && session?.format === 'json' && selected?.meta}
+              {#if detailStreamMode && (session?.format === 'json' || session?.format === 'jsonl') && selected?.meta}
                 <div class="json-view" role="region" aria-label="JSON（流式）结构化详情">
                   <div class="muted" style="margin-bottom: 6px">超大记录：已启用流式结构浏览（按需加载子节点）。</div>
                   <JsonLazyTree sessionId={session.session_id} meta={selected.meta} />
