@@ -222,7 +222,7 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     font-size: var(--jt-font-size, 12px);
     line-height: 1.45;
-    color: #111827;
+    color: var(--fg, #0f172a);
   }
 
   .jt-row {
@@ -241,7 +241,7 @@
     padding: 0;
     border: none;
     background: transparent;
-    color: #6b7280;
+    color: var(--muted, #64748b);
     cursor: pointer;
     line-height: 22px;
     font-size: calc(var(--jt-font-size, 12px) + 4px);
@@ -250,13 +250,13 @@
   }
 
   .jt-toggle:focus-visible {
-    outline: 2px solid #60a5fa;
+    outline: 2px solid var(--accent-2, #60a5fa);
     border-radius: 4px;
     outline-offset: 1px;
   }
 
   .jt-toggle-placeholder {
-    color: #e5e7eb;
+    color: var(--border, rgba(15, 23, 42, 0.12));
     cursor: default;
   }
 
@@ -274,39 +274,39 @@
   }
 
   .jt-pick:hover {
-    background: rgba(59, 130, 246, 0.08);
+    background: var(--accent-soft, rgba(37, 99, 235, 0.12));
   }
 
   .jt-pick:focus-visible {
-    outline: 2px solid #60a5fa;
+    outline: 2px solid var(--accent-2, #60a5fa);
     outline-offset: 1px;
   }
 
   .jt-pick.selected {
-    background: rgba(59, 130, 246, 0.14);
-    outline: 1px solid rgba(59, 130, 246, 0.35);
+    background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+    outline: 1px solid var(--accent-border, rgba(37, 99, 235, 0.45));
   }
 
   .jt-root {
-    color: #111827;
+    color: var(--fg, #0f172a);
     font-weight: 600;
   }
 
   .jt-key {
-    color: #7c3aed;
+    color: #a78bfa;
     flex: 0 0 auto;
   }
 
   .jt-punc {
-    color: #6b7280;
+    color: var(--muted, #64748b);
   }
 
   .jt-brace {
-    color: #2563eb;
+    color: var(--accent, #2563eb);
   }
 
   .jt-summary {
-    color: #6b7280;
+    color: var(--muted, #64748b);
   }
 
   .jt-string {

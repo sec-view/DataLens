@@ -60,6 +60,9 @@
   let recordSearchHits: RecordPage | null = null;
   let recordSearchHitsCursor: string | null = null;
 
+  type RecordPanelTab = 'records' | 'search';
+  let recordPanelTab: RecordPanelTab = 'records';
+
   // Local (json_subtree) search results over the ENTIRE selected subtree.
   let recordSubviewSearchAll: Record[] = [];
   let recordSubviewSearchPageIndex = 0;
@@ -132,13 +135,15 @@
   let openPct: number | null = null;
   let openStage: string = '';
 
-  let splitPct = 50; // record vs detail width percent
+  // Default: emphasize detail panel by giving it more space.
+  let splitPct = 40; // record vs detail width percent
   let splitEl: HTMLElement | null = null;
 
   // Left Session panel (default collapsed)
   let layoutEl: HTMLElement | null = null;
   let sidebarCollapsed = true;
-  let sidebarWidth = 280; // px, used when expanded
+  // Default: slightly narrower sidebar to keep focus on details.
+  let sidebarWidth = 240; // px, used when expanded
   let recentFiles: string[] = [];
   let folderTreeRoot: FsNode | null = null;
   let folderTreeTruncated = false;
@@ -594,6 +599,7 @@
       recordSearchActive = true;
       recordSearchCommittedText = q;
       recordSubviewSearchPageIndex = 0;
+      recordPanelTab = 'search';
 
       if (recordViewMode === 'json_subtree') {
         // Local filter only; no backend task.
@@ -700,6 +706,7 @@
     recordSubviewSearchPageIndex = 0;
     recordSubviewSearchRangeText = '';
     recordSubviewSearchEmptyMsg = null;
+    recordPanelTab = 'records';
   }
 
   function clearDetailSearch() {
@@ -1489,8 +1496,8 @@
 
 <div class="app">
   <header class="toolbar">
-    <button on:click={onPickFile} disabled={busy}>打开文件…</button>
-    <button on:click={onPickFolder} disabled={busy}>打开文件夹…</button>
+    <button class="primary" on:click={onPickFile} disabled={busy}>打开文件…</button>
+    <button class="primary" on:click={onPickFolder} disabled={busy}>打开文件夹…</button>
     {#if !isTauriEnv}
       <button on:click={() => openFilePath(demoFiles[0].path)} disabled={busy} use:tooltip={{ text: 'Web 测试模式：加载内置示例数据' }}>
         打开示例数据
@@ -1508,7 +1515,7 @@
       </div>
     {/if}
 
-    <button on:click={() => (exportModalOpen = true)} disabled={!session || busy}>导出…</button>
+    <button class="primary" on:click={() => (exportModalOpen = true)} disabled={!session || busy}>导出…</button>
 
     <div class="spacer" />
     <div class="field page-size">
@@ -1630,11 +1637,22 @@
     <section class="content" bind:this={splitEl}>
       <div
         class="split"
-        style={`grid-template-columns: minmax(280px, ${splitPct}%) 10px minmax(280px, ${100 - splitPct}%);`}
+        style={`grid-template-columns: minmax(260px, ${splitPct}%) 8px minmax(360px, ${100 - splitPct}%);`}
       >
-        <section class="panel">
+        <section class="panel panel-stack">
           <div class="panel-head">
-            <h2>记录</h2>
+            <div class="panel-title-wrap">
+              <div class="panel-title">记录</div>
+              <div class="panel-subtitle">
+                {#if recordViewMode === 'json_subtree'}
+                  本地分页：{recordSubviewRangeText}
+                {:else if page}
+                  每页 {pageSize} · 游标 {pageCursorIndex + 1}{page?.reached_eof ? ' · 已到末尾' : ''}
+                {:else}
+                  打开文件后即可浏览记录
+                {/if}
+              </div>
+            </div>
             <div class="pager">
               {#if recordViewMode === 'json_subtree'}
                 <div class="task-pill" title="当前记录列表来自 JSON 子树（可返回原始记录）">
@@ -1713,39 +1731,183 @@
               {/if}
             </div>
           </div>
+
+          <div class="panel-tabs" role="tablist" aria-label="记录视图切换">
+            <button
+              type="button"
+              class="tab {recordPanelTab === 'records' ? 'active' : ''}"
+              role="tab"
+              aria-selected={recordPanelTab === 'records'}
+              on:click={() => (recordPanelTab = 'records')}
+            >
+              记录
+            </button>
+            <button
+              type="button"
+              class="tab {recordPanelTab === 'search' ? 'active' : ''}"
+              role="tab"
+              aria-selected={recordPanelTab === 'search'}
+              on:click={() => (recordPanelTab = 'search')}
+            >
+              检索结果
+              {#if recordSearchActive && recordSearchCommittedText.trim()}
+                <span class="badge">
+                  {recordViewMode === 'json_subtree'
+                    ? recordSubviewSearchAll.length
+                    : recordSearchHits
+                      ? recordSearchHits.records.length
+                      : recordSearchTask
+                        ? '…'
+                        : 0}
+                </span>
+              {/if}
+            </button>
+          </div>
+
           {#if page}
-            <div class="list">
-              {#if recordViewMode === 'json_subtree'}
-                {#if recordFocusInvalid}
-                  <div class="muted">所选节点路径已失效，已回退到根：{recordFocusInvalid}</div>
-                {/if}
-                {#if recordSubviewEmptyMsg}
-                  <p class="muted">{recordSubviewEmptyMsg}</p>
-                {:else}
-                  {#each recordSubviewRecords as r (r.id)}
-                    <div class:selected={selected?.id === r.id} class="row">
-                      <input type="checkbox" checked={checkedSubtree.has(r.id)} on:change={() => toggleCheckedSubtree(r.id)} />
-                      <button class="row-btn" on:click={() => (selected = r)}>
-                        <span class="mono">#{r.id}</span>
-                        <span class="preview">{r.preview}</span>
+            <div class="panel-body" role="tabpanel">
+              {#if recordPanelTab === 'records'}
+                <div class="list">
+                  {#if recordViewMode === 'json_subtree'}
+                    {#if recordFocusInvalid}
+                      <div class="muted">所选节点路径已失效，已回退到根：{recordFocusInvalid}</div>
+                    {/if}
+                    {#if recordSubviewEmptyMsg}
+                      <p class="muted">{recordSubviewEmptyMsg}</p>
+                    {:else}
+                      {#each recordSubviewRecords as r (r.id)}
+                        <div class:selected={selected?.id === r.id} class="row">
+                          <input type="checkbox" checked={checkedSubtree.has(r.id)} on:change={() => toggleCheckedSubtree(r.id)} />
+                          <button class="row-btn" on:click={() => (selected = r)}>
+                            <span class="badge mono">#{r.id}</span>
+                            <span class="preview">{r.preview}</span>
+                          </button>
+                        </div>
+                      {/each}
+                    {/if}
+                  {:else}
+                    {#each page.records as r (r.id)}
+                      <div class:selected={selected?.id === r.id} class="row">
+                        <input type="checkbox" checked={checked.has(r.id)} on:change={() => toggleChecked(r.id)} />
+                        <button class="row-btn" on:click={() => (selected = r)}>
+                          <span class="badge mono">#{r.id}</span>
+                          <span class="preview">{r.preview}</span>
+                        </button>
+                      </div>
+                    {/each}
+                  {/if}
+                </div>
+                <div class="panel-hint muted">下一页游标：{page.next_cursor ? '有' : '无'}</div>
+              {:else}
+                {#if recordSearchActive && recordSearchCommittedText.trim()}
+                  {#if recordViewMode === 'json_subtree'}
+                    <div class="pager panel-search-results-head">
+                      <div class="muted">子树检索命中：{recordSubviewSearchAll.length}；分页：{recordSubviewSearchRangeText}</div>
+                      <label class="muted" style="display: inline-flex; align-items: center; gap: 6px">
+                        <input
+                          type="checkbox"
+                          checked={
+                            recordSubviewSearchAll
+                              .slice(recordSubviewSearchPageIndex * pageSize, recordSubviewSearchPageIndex * pageSize + pageSize)
+                              .every((r) => checkedSubtree.has(r.id))
+                          }
+                          on:change={(e) => {
+                            const pageRecs = recordSubviewSearchAll.slice(
+                              recordSubviewSearchPageIndex * pageSize,
+                              recordSubviewSearchPageIndex * pageSize + pageSize
+                            );
+                            const ids = pageRecs.map((r) => r.id);
+                            const on = eventChecked(e);
+                            checkedSubtree = on ? addMany(checkedSubtree, ids) : removeMany(checkedSubtree, ids);
+                          }}
+                          disabled={busy || recordSubviewSearchAll.length === 0}
+                        />
+                        全选
+                      </label>
+                      <button
+                        on:click={() => (recordSubviewSearchPageIndex = Math.max(0, recordSubviewSearchPageIndex - 1))}
+                        disabled={busy || recordSubviewSearchPageIndex <= 0}
+                      >
+                        上一页
+                      </button>
+                      <button
+                        on:click={() => (recordSubviewSearchPageIndex = recordSubviewSearchPageIndex + 1)}
+                        disabled={
+                          busy ||
+                          recordSubviewSearchAll.length === 0 ||
+                          (recordSubviewSearchPageIndex + 1) * pageSize >= recordSubviewSearchAll.length
+                        }
+                      >
+                        下一页
                       </button>
                     </div>
-                  {/each}
+                    {#if recordSubviewSearchEmptyMsg}
+                      <p class="muted">{recordSubviewSearchEmptyMsg}</p>
+                    {:else}
+                      <div class="list">
+                        {#each recordSubviewSearchAll.slice(recordSubviewSearchPageIndex * pageSize, recordSubviewSearchPageIndex * pageSize + pageSize) as r (r.id)}
+                          <div class:selected={selected?.id === r.id} class="row">
+                            <input type="checkbox" checked={checkedSubtree.has(r.id)} on:change={() => toggleCheckedSubtree(r.id)} />
+                            <button class="row-btn" on:click={() => (selected = r)}>
+                              <span class="badge mono">#{r.id}</span>
+                              <span class="preview">{r.preview}</span>
+                            </button>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                  {:else}
+                    <div class="pager panel-search-results-head">
+                      <div class="muted">
+                        {#if recordSearchHits}
+                          检索命中：{recordSearchHits.records.length}；已到末尾：{String(recordSearchHits.reached_eof)}；下一页游标：{recordSearchHitsCursor ? '有' : '无'}
+                        {:else if recordSearchTask}
+                          正在检索… {recordSearchTask.progress_0_100}%
+                        {:else}
+                          检索已启动：点击下方命中项以查看详情。
+                        {/if}
+                      </div>
+                      {#if recordSearchHits && recordSearchHits.records.length > 0}
+                        <label class="muted" style="display: inline-flex; align-items: center; gap: 6px">
+                          <input
+                            type="checkbox"
+                            checked={recordSearchHits.records.every((r) => checked.has(r.id))}
+                            on:change={(e) => {
+                              const ids = recordSearchHits?.records?.map((r) => r.id) ?? [];
+                              const on = eventChecked(e);
+                              checked = on ? addMany(checked, ids) : removeMany(checked, ids);
+                            }}
+                            disabled={busy}
+                          />
+                          全选
+                        </label>
+                      {/if}
+                    </div>
+                    {#if recordSearchHits}
+                      <div class="list">
+                        {#each recordSearchHits.records as r (r.id)}
+                          <div class:selected={selected?.id === r.id} class="row">
+                            <input type="checkbox" checked={checked.has(r.id)} on:change={() => toggleChecked(r.id)} />
+                            <button class="row-btn" on:click={() => (selected = r)}>
+                              <span class="badge mono">#{r.id}</span>
+                              <span class="preview">{r.preview}</span>
+                            </button>
+                          </div>
+                        {/each}
+                      </div>
+                      {#if recordSearchHitsCursor}
+                        <button on:click={onMoreRecordSearchHits} disabled={busy || !recordSearchHitsCursor}>加载更多</button>
+                      {/if}
+                    {/if}
+                  {/if}
+                {:else}
+                  <p class="muted">开始检索后，命中结果会显示在这里（上方“记录”列表不会被检索改变）。</p>
                 {/if}
-                <div class="muted">本地分页：{recordSubviewRangeText}</div>
-              {:else}
-                {#each page.records as r (r.id)}
-                  <div class:selected={selected?.id === r.id} class="row">
-                    <input type="checkbox" checked={checked.has(r.id)} on:change={() => toggleChecked(r.id)} />
-                    <button class="row-btn" on:click={() => (selected = r)}>
-                      <span class="mono">#{r.id}</span>
-                      <span class="preview">{r.preview}</span>
-                    </button>
-                  </div>
-                {/each}
               {/if}
             </div>
-            <div class="panel-search panel-search-bottom" aria-label="记录检索">
+
+            <div class="panel-footer" aria-label="记录检索">
+              <div class="panel-search">
               <input
                 class="panel-search-text"
                 bind:value={recordSearchDraft}
@@ -1786,114 +1948,6 @@
                 {/if}
               {/if}
             </div>
-            <div class="muted">已到末尾：{String(page.reached_eof)}；下一页游标：{page.next_cursor ? '有' : '无'}</div>
-
-            <div class="panel-search-results" aria-label="检索结果">
-              <h2>检索结果</h2>
-              {#if recordSearchActive && recordSearchCommittedText.trim()}
-                {#if recordViewMode === 'json_subtree'}
-                  <div class="pager panel-search-results-head">
-                    <div class="muted">子树检索命中：{recordSubviewSearchAll.length}；分页：{recordSubviewSearchRangeText}</div>
-                    <label class="muted" style="display: inline-flex; align-items: center; gap: 6px">
-                      <input
-                        type="checkbox"
-                        checked={
-                          recordSubviewSearchAll
-                            .slice(recordSubviewSearchPageIndex * pageSize, recordSubviewSearchPageIndex * pageSize + pageSize)
-                            .every((r) => checkedSubtree.has(r.id))
-                        }
-                        on:change={(e) => {
-                          const pageRecs = recordSubviewSearchAll.slice(
-                            recordSubviewSearchPageIndex * pageSize,
-                            recordSubviewSearchPageIndex * pageSize + pageSize
-                          );
-                          const ids = pageRecs.map((r) => r.id);
-                          const on = eventChecked(e);
-                          checkedSubtree = on ? addMany(checkedSubtree, ids) : removeMany(checkedSubtree, ids);
-                        }}
-                        disabled={busy || recordSubviewSearchAll.length === 0}
-                      />
-                      全选
-                    </label>
-                    <button
-                      on:click={() => (recordSubviewSearchPageIndex = Math.max(0, recordSubviewSearchPageIndex - 1))}
-                      disabled={busy || recordSubviewSearchPageIndex <= 0}
-                    >
-                      上一页
-                    </button>
-                    <button
-                      on:click={() => (recordSubviewSearchPageIndex = recordSubviewSearchPageIndex + 1)}
-                      disabled={
-                        busy ||
-                        recordSubviewSearchAll.length === 0 ||
-                        (recordSubviewSearchPageIndex + 1) * pageSize >= recordSubviewSearchAll.length
-                      }
-                    >
-                      下一页
-                    </button>
-                  </div>
-                  {#if recordSubviewSearchEmptyMsg}
-                    <p class="muted">{recordSubviewSearchEmptyMsg}</p>
-                  {:else}
-                    <div class="list">
-                      {#each recordSubviewSearchAll.slice(recordSubviewSearchPageIndex * pageSize, recordSubviewSearchPageIndex * pageSize + pageSize) as r (r.id)}
-                        <div class:selected={selected?.id === r.id} class="row">
-                          <input type="checkbox" checked={checkedSubtree.has(r.id)} on:change={() => toggleCheckedSubtree(r.id)} />
-                          <button class="row-btn" on:click={() => (selected = r)}>
-                            <span class="mono">#{r.id}</span>
-                            <span class="preview">{r.preview}</span>
-                          </button>
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
-                {:else}
-                  <div class="pager panel-search-results-head">
-                    <div class="muted">
-                      {#if recordSearchHits}
-                        检索命中：{recordSearchHits.records.length}；已到末尾：{String(recordSearchHits.reached_eof)}；下一页游标：{recordSearchHitsCursor ? '有' : '无'}
-                      {:else if recordSearchTask}
-                        正在检索… {recordSearchTask.progress_0_100}%
-                      {:else}
-                        检索已启动：点击下方命中项以查看详情。
-                      {/if}
-                    </div>
-                    {#if recordSearchHits && recordSearchHits.records.length > 0}
-                      <label class="muted" style="display: inline-flex; align-items: center; gap: 6px">
-                        <input
-                          type="checkbox"
-                          checked={recordSearchHits.records.every((r) => checked.has(r.id))}
-                          on:change={(e) => {
-                            const ids = recordSearchHits?.records?.map((r) => r.id) ?? [];
-                            const on = eventChecked(e);
-                            checked = on ? addMany(checked, ids) : removeMany(checked, ids);
-                          }}
-                          disabled={busy}
-                        />
-                        全选
-                      </label>
-                    {/if}
-                  </div>
-                  {#if recordSearchHits}
-                    <div class="list">
-                      {#each recordSearchHits.records as r (r.id)}
-                        <div class:selected={selected?.id === r.id} class="row">
-                          <input type="checkbox" checked={checked.has(r.id)} on:change={() => toggleChecked(r.id)} />
-                          <button class="row-btn" on:click={() => (selected = r)}>
-                            <span class="mono">#{r.id}</span>
-                            <span class="preview">{r.preview}</span>
-                          </button>
-                        </div>
-                      {/each}
-                    </div>
-                    {#if recordSearchHitsCursor}
-                      <button on:click={onMoreRecordSearchHits} disabled={busy || !recordSearchHitsCursor}>加载更多</button>
-                    {/if}
-                  {/if}
-                {/if}
-              {:else}
-                <p class="muted">开始检索后，命中结果会显示在这里（上方“记录”列表不会被检索改变）。</p>
-              {/if}
             </div>
           {:else}
             <p class="muted">打开文件后即可浏览记录。</p>
@@ -1910,7 +1964,12 @@
 
         <section class="panel panel-detail">
           <div class="panel-head panel-head-detail">
-            <h2>详情</h2>
+            <div class="panel-title-wrap">
+              <div class="panel-title">详情</div>
+              <div class="panel-subtitle">
+                {#if selected?.meta}行 {selected.meta.line_no} · {/if}{detailCharLen} 字符{detailTruncated ? ' · 已截断' : ''}
+              </div>
+            </div>
             <div class="detail-search" aria-label="详情检索">
               <input
                 class="panel-search-text"
@@ -2195,6 +2254,91 @@
 {/if}
 
 <style>
+  :global(:root) {
+    color-scheme: light dark;
+
+    /* Theme tokens (light) */
+    --bg0: #f6f7fb;
+    --bg1: #eef2ff;
+    --fg: #0f172a;
+    --muted: #64748b;
+    --border: rgba(15, 23, 42, 0.12);
+    --border-strong: rgba(15, 23, 42, 0.18);
+    --border-soft: rgba(15, 23, 42, 0.08);
+    --surface: rgba(255, 255, 255, 0.78);
+    --surface-solid: #ffffff;
+    --surface-2: rgba(255, 255, 255, 0.92);
+
+    --accent: #2563eb;
+    --accent-2: #60a5fa;
+    --accent-soft: rgba(37, 99, 235, 0.12);
+    --accent-border: rgba(37, 99, 235, 0.45);
+
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.12);
+    --danger-border: rgba(220, 38, 38, 0.45);
+
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow: 0 8px 30px rgba(15, 23, 42, 0.10), 0 2px 10px rgba(15, 23, 42, 0.06);
+
+    --ring: rgba(96, 165, 250, 0.45);
+    --radius: 12px;
+    --radius-sm: 10px;
+
+    /* Typography scale (visible hierarchy) */
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 14px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+    --leading-tight: 1.25;
+    --leading: 1.45;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root) {
+      --bg0: #070a12;
+      --bg1: #0b1020;
+      --fg: #e5e7eb;
+      --muted: rgba(229, 231, 235, 0.7);
+      --border: rgba(255, 255, 255, 0.12);
+      --border-strong: rgba(255, 255, 255, 0.18);
+      --border-soft: rgba(255, 255, 255, 0.08);
+      --surface: rgba(15, 23, 42, 0.55);
+      --surface-solid: #0b1020;
+      --surface-2: rgba(15, 23, 42, 0.75);
+
+      --accent: #60a5fa;
+      --accent-2: #93c5fd;
+      --accent-soft: rgba(96, 165, 250, 0.18);
+      --accent-border: rgba(96, 165, 250, 0.55);
+
+      --danger: #fb7185;
+      --danger-soft: rgba(251, 113, 133, 0.16);
+      --danger-border: rgba(251, 113, 133, 0.55);
+
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.26);
+      --shadow: 0 12px 40px rgba(0, 0, 0, 0.40);
+      --ring: rgba(147, 197, 253, 0.40);
+    }
+  }
+
+  :global(*) {
+    box-sizing: border-box;
+  }
+  :global(html),
+  :global(body) {
+    height: 100%;
+  }
+  :global(body) {
+    margin: 0;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 380px at 20% 0%, rgba(96, 165, 250, 0.18), transparent 55%),
+      radial-gradient(880px 360px at 80% 0%, rgba(167, 139, 250, 0.14), transparent 58%),
+      linear-gradient(180deg, var(--bg0), var(--bg1));
+  }
+
   .app {
     font-family:
       ui-sans-serif,
@@ -2207,7 +2351,6 @@
       Arial,
       'Apple Color Emoji',
       'Segoe UI Emoji';
-    color: #111827;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -2216,10 +2359,15 @@
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px;
-    border-bottom: 1px solid #e5e7eb;
+    gap: 6px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--surface);
+    backdrop-filter: blur(10px);
   }
   .open-progress {
     display: grid;
@@ -2227,19 +2375,19 @@
     min-width: 160px;
   }
   .open-progress-text {
-    font-size: 12px;
-    color: #374151;
+    font-size: 11px;
+    color: var(--muted);
     white-space: nowrap;
   }
   .open-progress-bar {
-    height: 8px;
+    height: 6px;
     border-radius: 999px;
-    background: #e5e7eb;
+    background: var(--border-soft);
     overflow: hidden;
   }
   .open-progress-bar-inner {
     height: 100%;
-    background: #60a5fa;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
     width: 0%;
     transition: width 120ms linear;
   }
@@ -2250,6 +2398,14 @@
   .page-size {
     margin-left: auto;
   }
+  /* Compact toolbar controls to reduce header height */
+  .toolbar button {
+    padding: 4px 8px;
+  }
+  .toolbar input {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
   .layout {
     display: grid;
     gap: 0;
@@ -2259,16 +2415,19 @@
     min-height: 0;
   }
   .sidebar {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     padding: 10px;
     overflow: auto;
     min-width: 0;
     min-height: 0;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(10px);
   }
   .sidebar.drop-active {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+    border-color: var(--accent-border);
+    box-shadow: 0 0 0 3px var(--ring), var(--shadow-sm);
   }
   .sidebar.collapsed {
     padding: 8px;
@@ -2282,23 +2441,24 @@
   }
   .sidebar-title {
     font-size: 12px;
-    color: #374151;
+    color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    font-weight: 700;
   }
   .panel-lite {
     display: grid;
     gap: 8px;
   }
   .dropzone {
-    border: 1px dashed rgba(17, 24, 39, 0.22);
-    border-radius: 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
     padding: 10px;
-    background: rgba(249, 250, 251, 0.8);
+    background: var(--surface-2);
   }
   .dropzone-title {
     font-size: 12px;
-    color: #111827;
+    color: var(--fg);
     font-weight: 600;
     margin-bottom: 4px;
   }
@@ -2311,11 +2471,11 @@
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: #93c5fd;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent));
   }
   .sidebar-resizer {
     border: none;
-    background: #f3f4f6;
+    background: var(--border-soft);
     cursor: col-resize;
     border-radius: 999px;
     margin: 0;
@@ -2326,15 +2486,18 @@
   }
   .sidebar-resizer:hover,
   .sidebar-resizer:focus-visible {
-    background: #93c5fd;
+    background: var(--accent-soft);
     outline: none;
   }
   .panel {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     padding: 12px;
     overflow: auto;
     min-height: 0;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(10px);
   }
   .panel-head {
     display: flex;
@@ -2348,14 +2511,6 @@
     gap: 8px;
     min-width: 0;
     flex: 1 1 360px;
-  }
-  .panel-search-bottom {
-    margin-top: 10px;
-  }
-  .panel-search-results {
-    margin-top: 12px;
-    padding-top: 10px;
-    border-top: 1px solid #f3f4f6;
   }
   .panel-search-results-head {
     justify-content: space-between;
@@ -2386,14 +2541,14 @@
     border: none;
     padding: 0;
     border-radius: 999px;
-    background: #e5e7eb;
+    background: var(--border-soft);
     cursor: col-resize;
     align-self: stretch;
     margin: 0 2px;
   }
   .splitter:hover,
   .splitter:focus-visible {
-    background: #93c5fd;
+    background: var(--accent-soft);
     outline: none;
   }
   :global(body.dragging-split) {
@@ -2423,25 +2578,25 @@
     gap: 8px;
     padding: 6px 10px;
     border-radius: 999px;
-    border: 1px solid rgba(17, 24, 39, 0.12);
-    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
     cursor: pointer;
     user-select: none;
   }
 
   .switch:hover {
-    border-color: rgba(59, 130, 246, 0.35);
-    background: rgba(255, 255, 255, 0.95);
+    border-color: var(--accent-border);
+    background: var(--surface-2);
   }
 
   .switch:focus-visible {
-    outline: 2px solid #60a5fa;
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
 
   .switch-label {
     font-size: 12px;
-    color: #111827;
+    color: var(--fg);
     white-space: nowrap;
   }
 
@@ -2449,7 +2604,7 @@
     width: 36px;
     height: 18px;
     border-radius: 999px;
-    background: rgba(17, 24, 39, 0.18);
+    background: var(--border-strong);
     position: relative;
     flex: 0 0 auto;
   }
@@ -2468,14 +2623,14 @@
 
   .switch-thumb.on {
     transform: translateX(18px);
-    background: #93c5fd;
+    background: var(--accent-2);
   }
   h2 {
-    font-size: 14px;
+    font-size: 12px;
     margin: 8px 0;
-    color: #374151;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    font-weight: 700;
   }
   .field {
     display: grid;
@@ -2483,8 +2638,8 @@
     margin: 8px 0;
   }
   label {
-    font-size: 12px;
-    color: #6b7280;
+    font-size: var(--text-xs);
+    color: var(--muted);
   }
   input,
   select,
@@ -2493,21 +2648,142 @@
   }
   input,
   select {
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     padding: 6px 8px;
+    background: var(--surface-solid);
+    color: var(--fg);
+    font-size: var(--text-sm);
+  }
+  input::placeholder {
+    color: var(--muted);
+  }
+  input:focus-visible,
+  select:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   button {
-    border: 1px solid #d1d5db;
-    background: #ffffff;
-    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-solid);
+    border-radius: var(--radius-sm);
     padding: 6px 10px;
     cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    font-size: var(--text-sm);
+    transition:
+      transform 80ms ease,
+      box-shadow 120ms ease,
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+  button:hover:not(:disabled) {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+  }
+  button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
   }
   button:disabled {
     cursor: not-allowed;
     opacity: 0.6;
   }
+
+  /* Button variants (opt-in with class) */
+  button.primary {
+    border-color: var(--accent-border);
+    background: linear-gradient(180deg, var(--accent-2), var(--accent));
+    color: #ffffff;
+  }
+  button.primary:hover:not(:disabled) {
+    border-color: var(--accent-border);
+    box-shadow: var(--shadow);
+  }
+  button.primary:active:not(:disabled) {
+    box-shadow: var(--shadow-sm);
+  }
+  /* Panel typography & layout */
+  .panel-title-wrap {
+    display: grid;
+    gap: 2px;
+    min-width: 240px;
+  }
+  .panel-title {
+    font-size: var(--text-lg);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    line-height: var(--leading-tight);
+    color: var(--fg);
+  }
+  .panel-subtitle {
+    font-size: var(--text-xs);
+    color: var(--muted);
+    line-height: var(--leading);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .panel.panel-stack {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* keep header/tabs/footer fixed */
+  }
+  .panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 10px 0 0;
+  }
+  .panel-footer {
+    flex: 0 0 auto;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .panel-hint {
+    margin-top: 8px;
+  }
+
+  .panel-tabs {
+    display: inline-flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    align-self: flex-start;
+  }
+  .tab {
+    border: 1px solid transparent;
+    background: transparent;
+    box-shadow: none;
+    padding: 6px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transform: none;
+  }
+  .tab:hover:not(:disabled) {
+    background: var(--surface-solid);
+    box-shadow: none;
+    border-color: var(--border);
+    transform: none;
+  }
+  .tab.active {
+    background: var(--surface-solid);
+    border-color: var(--border-strong);
+    color: var(--fg);
+  }
+
   .kv {
     display: grid;
     grid-template-columns: 90px 1fr;
@@ -2515,11 +2791,11 @@
     padding: 4px 0;
   }
   .k {
-    color: #6b7280;
-    font-size: 12px;
+    color: var(--muted);
+    font-size: var(--text-xs);
   }
   .v {
-    font-size: 12px;
+    font-size: var(--text-sm);
     word-break: break-all;
   }
   .mono {
@@ -2527,16 +2803,16 @@
       monospace;
   }
   .muted {
-    color: #6b7280;
-    font-size: 12px;
+    color: var(--muted);
+    font-size: var(--text-xs);
   }
   .error {
     margin-top: 10px;
     padding: 8px;
     border-radius: 8px;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #991b1b;
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-border);
+    color: var(--danger);
     font-size: 12px;
     word-break: break-word;
   }
@@ -2550,14 +2826,19 @@
     grid-template-columns: 20px 1fr;
     gap: 8px;
     align-items: start;
-    padding: 6px;
-    border: 1px solid #f3f4f6;
-    border-radius: 8px;
-    background: #ffffff;
+    padding: 10px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-solid);
+    transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+  }
+  .row:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
   }
   .row.selected {
-    border-color: #93c5fd;
-    background: #eff6ff;
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
   }
   .row-btn {
     border: none;
@@ -2568,15 +2849,36 @@
     display: grid;
     gap: 4px;
     width: 100%;
+    box-shadow: none;
+    transform: none;
+  }
+  .row-btn:hover:not(:disabled) {
+    background: transparent;
+    box-shadow: none;
+    transform: none;
   }
 
   /* (unused) row-spacer kept previously for alignment; now all rows have checkbox column. */
   .preview {
-    font-size: 12px;
-    color: #111827;
+    font-size: var(--text-base);
+    color: var(--fg);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 18px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted);
+    flex: 0 0 auto;
   }
   .raw {
     margin-top: 10px;
@@ -2653,7 +2955,7 @@
   }
   .recent-item {
     font-size: 12px;
-    color: #111827;
+    color: var(--fg);
     padding: 6px 8px;
     border: 1px solid #f3f4f6;
     border-radius: 8px;
@@ -2674,11 +2976,18 @@
     height: 28px;
     display: grid;
     place-items: center;
-    border-radius: 8px;
-    border: 1px solid #d1d5db;
-    background: #fff;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-solid);
     padding: 0;
     cursor: pointer;
+    box-shadow: none;
+  }
+  .icon-btn:hover:not(:disabled) {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+    transform: none;
+    box-shadow: var(--shadow-sm);
   }
 
   .task-pill {
@@ -2686,37 +2995,39 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border);
     border-radius: 999px;
     font-size: 12px;
-    color: #374151;
+    color: var(--muted);
     white-space: nowrap;
   }
   .task-progress-bar {
     height: 6px;
     width: 140px;
     border-radius: 999px;
-    background: #e5e7eb;
+    background: var(--border-soft);
     overflow: hidden;
   }
   .task-progress-bar-inner {
     height: 100%;
-    background: #60a5fa;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
   }
   .dot {
     width: 6px;
     height: 6px;
     border-radius: 999px;
-    background: #60a5fa;
+    background: var(--accent-2);
     display: inline-block;
   }
   .link {
     border: none;
     background: transparent;
     padding: 0;
-    color: #2563eb;
+    color: var(--accent);
     cursor: pointer;
     text-decoration: underline;
+    box-shadow: none;
+    transform: none;
   }
   .link:disabled {
     opacity: 0.6;
@@ -2727,6 +3038,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(6px);
     display: grid;
     place-items: center;
     padding: 16px;
@@ -2734,13 +3046,12 @@
   }
   .modal {
     width: min(520px, 100%);
-    background: #fff;
-    border-radius: 12px;
-    border: 1px solid #e5e7eb;
+    background: var(--surface-2);
+    border-radius: 14px;
+    border: 1px solid var(--border);
     padding: 12px;
-    box-shadow:
-      0 10px 30px rgba(0, 0, 0, 0.16),
-      0 2px 10px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow);
+    color: var(--fg);
   }
   .modal-head {
     display: flex;
@@ -2751,7 +3062,7 @@
   }
   .modal-title {
     font-size: 14px;
-    color: #111827;
+    color: var(--fg);
     font-weight: 600;
   }
   .modal-actions {
@@ -2768,9 +3079,9 @@
   .json-picker {
     margin-top: 8px;
     padding: 10px;
-    border-radius: 10px;
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface-solid);
     max-height: 60vh;
     overflow: auto;
   }
@@ -2783,9 +3094,9 @@
     margin: 10px 12px 0;
     padding: 10px 10px;
     border-radius: 10px;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #991b1b;
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-border);
+    color: var(--danger);
     font-size: 12px;
   }
   .error-text {

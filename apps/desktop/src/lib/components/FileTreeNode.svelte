@@ -73,7 +73,7 @@
     border-radius: 8px;
   }
   .row:hover {
-    background: #f3f4f6;
+    background: var(--surface-2, rgba(255, 255, 255, 0.92));
   }
   .twisty {
     width: 16px;
@@ -84,7 +84,7 @@
     padding: 0;
     background: transparent;
     cursor: pointer;
-    color: #6b7280;
+    color: var(--muted, #64748b);
   }
   .twisty:disabled {
     cursor: default;
@@ -102,7 +102,7 @@
     text-align: left;
     cursor: pointer;
     font-size: 12px;
-    color: #111827;
+    color: var(--fg, #0f172a);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -111,14 +111,15 @@
     cursor: not-allowed;
   }
   .name.unsupported {
-    color: #9ca3af;
+    color: var(--muted, #64748b);
+    opacity: 0.7;
   }
   .name.active {
-    color: #2563eb;
+    color: var(--accent, #2563eb);
     font-weight: 600;
   }
   .dir {
-    color: #374151;
+    color: var(--muted, #64748b);
   }
 </style>
 

@@ -188,6 +188,37 @@ fn export_csv_to_jsonl_and_json() {
 }
 
 #[test]
+fn csv_multiline_quoted_field_is_single_record() {
+  let dir = tempfile::tempdir().unwrap();
+  let sqlite = dir.path().join("t.sqlite");
+  let file = dir.path().join("a.csv");
+
+  // A CSV row with an embedded newline inside a quoted field.
+  // This must be treated as ONE record (not split into multiple).
+  let content = concat!(
+    "id,dialogue,summary,topic\n",
+    "train_0,\"#Person1#: Hi, Mr. Smith.\n",
+    "#Person2#: I found it would be a good idea to get a check-up.\",,\n",
+    "train_1,\"ok\",,\n"
+  );
+  std::fs::write(&file, content).unwrap();
+
+  let eng = engine_with_sqlite(sqlite);
+  let (_session, p1) = eng.open_file(&file).unwrap();
+
+  // default_page_size is 2: header + first data record
+  assert_eq!(p1.records.len(), 2);
+  assert_eq!(p1.records[0].id, 0);
+  assert_eq!(p1.records[1].id, 1);
+
+  // The first data record raw is JSON; newline inside dialogue should be preserved (escaped in JSON).
+  let raw = p1.records[1].raw.as_deref().unwrap_or("");
+  assert!(raw.contains(r#""id":"train_0""#));
+  assert!(raw.contains("\"dialogue\":\"#Person1#:"));
+  assert!(raw.contains("\\n"));
+}
+
+#[test]
 fn export_parquet_to_jsonl() {
   let dir = tempfile::tempdir().unwrap();
   let sqlite = dir.path().join("t.sqlite");

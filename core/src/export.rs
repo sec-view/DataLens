@@ -83,7 +83,7 @@ pub(crate) fn export(
     // Raw line export (backward compatible behavior):
     (FileFormat::Jsonl, ExportFormat::Jsonl) => export_lines_passthrough(&session_path, &ids, &mut writer)?,
     (FileFormat::Jsonl, ExportFormat::Csv) => export_lines_passthrough(&session_path, &ids, &mut writer)?,
-    (FileFormat::Csv, ExportFormat::Csv) => export_lines_passthrough(&session_path, &ids, &mut writer)?,
+    (FileFormat::Csv, ExportFormat::Csv) => export_csv_passthrough(&session_path, &ids, &mut writer)?,
 
     // Conversions:
     (FileFormat::Jsonl, ExportFormat::Json) => export_jsonl_to_json_array(&session_path, &ids, &mut writer)?,
@@ -145,6 +145,39 @@ fn export_lines_passthrough(
   Ok(written)
 }
 
+fn export_csv_passthrough(
+  path: &Path,
+  ids: &[u64],
+  writer: &mut BufWriter<File>,
+) -> Result<u64, CoreError> {
+  let mut wanted_idx = 0usize;
+  let mut written = 0u64;
+
+  let in_file = File::open(path)?;
+  let mut reader = BufReader::new(in_file);
+
+  let mut record_no = 0u64;
+  loop {
+    if wanted_idx >= ids.len() {
+      break;
+    }
+    let mut buf = Vec::new();
+    let (n, _terminated_by_newline) = read_csv_record_bytes(&mut reader, &mut buf)?;
+    if n == 0 {
+      break;
+    }
+
+    if ids[wanted_idx] == record_no {
+      normalize_record_line_ending(&mut buf);
+      writer.write_all(&buf)?;
+      written += 1;
+      wanted_idx += 1;
+    }
+    record_no += 1;
+  }
+  Ok(written)
+}
+
 fn normalize_line_ending(buf: &mut Vec<u8>) {
   if buf.ends_with(b"\n") {
     // ok
@@ -152,6 +185,18 @@ fn normalize_line_ending(buf: &mut Vec<u8>) {
     buf.push(b'\n');
   }
   // Strip CR before LF if present.
+  if buf.len() >= 2 && buf[buf.len() - 2] == b'\r' && buf[buf.len() - 1] == b'\n' {
+    buf.remove(buf.len() - 2);
+  }
+}
+
+fn normalize_record_line_ending(buf: &mut Vec<u8>) {
+  // Ensure record ends with LF and normalize trailing CRLF to LF.
+  if buf.ends_with(b"\n") {
+    // ok
+  } else {
+    buf.push(b'\n');
+  }
   if buf.len() >= 2 && buf[buf.len() - 2] == b'\r' && buf[buf.len() - 1] == b'\n' {
     buf.remove(buf.len() - 2);
   }
@@ -217,7 +262,7 @@ fn export_csv_to_jsonl(path: &Path, ids: &[u64], writer: &mut BufWriter<File>) -
   let mut reader = BufReader::new(in_file);
 
   let mut wanted_idx = 0usize;
-  let mut line_no = 0u64;
+  let mut record_no = 0u64;
   let mut written = 0u64;
 
   loop {
@@ -225,29 +270,23 @@ fn export_csv_to_jsonl(path: &Path, ids: &[u64], writer: &mut BufWriter<File>) -
       break;
     }
     let mut buf = Vec::new();
-    let n = reader.read_until(b'\n', &mut buf)?;
+    let (n, _terminated_by_newline) = read_csv_record_bytes(&mut reader, &mut buf)?;
     if n == 0 {
       break;
     }
-    if ids[wanted_idx] != line_no {
-      line_no += 1;
+    if ids[wanted_idx] != record_no {
+      record_no += 1;
       continue;
     }
 
     // For csv->jsonl: skip header row (line 0) even if selected.
-    if line_no == 0 {
+    if record_no == 0 {
       wanted_idx += 1;
-      line_no += 1;
+      record_no += 1;
       continue;
     }
 
-    // Trim newline & CRLF
-    if buf.ends_with(b"\n") {
-      buf.pop();
-      if buf.ends_with(b"\r") {
-        buf.pop();
-      }
-    }
+    trim_record_terminator(&mut buf);
     let line = String::from_utf8_lossy(&buf).to_string();
     let obj = csv_line_to_object(&headers, &line);
     let s = serde_json::to_string(&obj)
@@ -257,7 +296,7 @@ fn export_csv_to_jsonl(path: &Path, ids: &[u64], writer: &mut BufWriter<File>) -
     written += 1;
 
     wanted_idx += 1;
-    line_no += 1;
+    record_no += 1;
   }
 
   Ok(written)
@@ -272,7 +311,7 @@ fn export_csv_to_json(path: &Path, ids: &[u64], writer: &mut BufWriter<File>) ->
   let mut wrote_any = false;
 
   let mut wanted_idx = 0usize;
-  let mut line_no = 0u64;
+  let mut record_no = 0u64;
   let mut written = 0u64;
 
   loop {
@@ -280,27 +319,22 @@ fn export_csv_to_json(path: &Path, ids: &[u64], writer: &mut BufWriter<File>) ->
       break;
     }
     let mut buf = Vec::new();
-    let n = reader.read_until(b'\n', &mut buf)?;
+    let (n, _terminated_by_newline) = read_csv_record_bytes(&mut reader, &mut buf)?;
     if n == 0 {
       break;
     }
-    if ids[wanted_idx] != line_no {
-      line_no += 1;
+    if ids[wanted_idx] != record_no {
+      record_no += 1;
       continue;
     }
 
-    if line_no == 0 {
+    if record_no == 0 {
       wanted_idx += 1;
-      line_no += 1;
+      record_no += 1;
       continue;
     }
 
-    if buf.ends_with(b"\n") {
-      buf.pop();
-      if buf.ends_with(b"\r") {
-        buf.pop();
-      }
-    }
+    trim_record_terminator(&mut buf);
     let line = String::from_utf8_lossy(&buf).to_string();
     let obj = csv_line_to_object(&headers, &line);
     let s = serde_json::to_string(&obj)
@@ -316,7 +350,7 @@ fn export_csv_to_json(path: &Path, ids: &[u64], writer: &mut BufWriter<File>) ->
     written += 1;
 
     wanted_idx += 1;
-    line_no += 1;
+    record_no += 1;
   }
 
   if wrote_any {
@@ -331,16 +365,11 @@ fn read_csv_header(path: &Path) -> Result<Vec<String>, CoreError> {
   let file = File::open(path)?;
   let mut reader = BufReader::new(file);
   let mut buf = Vec::new();
-  let n = reader.read_until(b'\n', &mut buf)?;
+  let (n, _terminated_by_newline) = read_csv_record_bytes(&mut reader, &mut buf)?;
   if n == 0 {
     return Ok(vec![]);
   }
-  if buf.ends_with(b"\n") {
-    buf.pop();
-    if buf.ends_with(b"\r") {
-      buf.pop();
-    }
-  }
+  trim_record_terminator(&mut buf);
   let mut line = String::from_utf8_lossy(&buf).to_string();
   // Strip UTF-8 BOM if present
   if line.starts_with('\u{feff}') {
@@ -356,6 +385,91 @@ fn read_csv_header(path: &Path) -> Result<Vec<String>, CoreError> {
     headers.push("col_0".to_string());
   }
   Ok(headers)
+}
+
+/// Read a single CSV record into `out`, allowing embedded newlines inside quoted fields.
+///
+/// Returns:
+/// - bytes consumed from reader (including the record terminator if present)
+/// - whether the record ended due to a newline terminator (as opposed to EOF)
+fn read_csv_record_bytes<R: BufRead>(reader: &mut R, out: &mut Vec<u8>) -> Result<(usize, bool), CoreError> {
+  out.clear();
+
+  let mut in_quotes = false;
+  let mut at_field_start = true;
+  let mut consumed = 0usize;
+  let mut terminated_by_newline = false;
+
+  loop {
+    let mut chunk = Vec::new();
+    let n = reader.read_until(b'\n', &mut chunk)?;
+    if n == 0 {
+      break;
+    }
+    consumed += n;
+
+    let scan_slice = if chunk.ends_with(b"\n") {
+      &chunk[..chunk.len().saturating_sub(1)]
+    } else {
+      chunk.as_slice()
+    };
+    update_csv_quote_state(&mut in_quotes, &mut at_field_start, scan_slice);
+
+    out.extend_from_slice(&chunk);
+
+    if chunk.ends_with(b"\n") && !in_quotes {
+      terminated_by_newline = true;
+      break;
+    }
+    if !chunk.ends_with(b"\n") {
+      break;
+    }
+  }
+
+  Ok((consumed, terminated_by_newline))
+}
+
+fn update_csv_quote_state(in_quotes: &mut bool, at_field_start: &mut bool, bytes: &[u8]) {
+  let mut i = 0usize;
+  while i < bytes.len() {
+    let b = bytes[i];
+
+    if *in_quotes {
+      if b == b'"' {
+        if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+          i += 2;
+          continue;
+        }
+        *in_quotes = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    match b {
+      b',' => {
+        *at_field_start = true;
+      }
+      b' ' | b'\t' if *at_field_start => {}
+      b'"' if *at_field_start => {
+        *in_quotes = true;
+        *at_field_start = false;
+      }
+      _ => {
+        *at_field_start = false;
+      }
+    }
+    i += 1;
+  }
+}
+
+fn trim_record_terminator(buf: &mut Vec<u8>) {
+  if buf.ends_with(b"\n") {
+    buf.pop();
+    if buf.ends_with(b"\r") {
+      buf.pop();
+    }
+  }
 }
 
 fn parse_csv_line(line: &str) -> Vec<String> {

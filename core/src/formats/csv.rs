@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// CSV paging implementation:
-/// - Still line-based for fast first screen (does NOT support multi-line quoted cells).
+/// - Record-based streaming (supports multi-line quoted cells).
 /// - Additionally provides `Record.raw` as a JSON string, whose keys are the header row fields.
 pub(crate) fn read_csv_page(
   path: &Path,
@@ -43,19 +43,14 @@ pub(crate) fn read_csv_page(
   for _ in 0..page_size {
     let start_offset = offset;
     let mut buf = Vec::new();
-    let n = reader.read_until(b'\n', &mut buf)?;
+    let (n, _terminated_by_newline) = read_csv_record_bytes(&mut reader, &mut buf)?;
     if n == 0 {
       break;
     }
     offset += n as u64;
 
-    // Trim newline & CRLF
-    if buf.ends_with(b"\n") {
-      buf.pop();
-      if buf.ends_with(b"\r") {
-        buf.pop();
-      }
-    }
+    // Trim the *record terminator* (CRLF/LF) only.
+    trim_record_terminator(&mut buf);
 
     let line = String::from_utf8_lossy(&buf).to_string();
     let preview = truncate_chars(&line, preview_max_chars);
@@ -127,16 +122,11 @@ fn read_csv_header(path: &Path) -> Result<Vec<String>, CoreError> {
   let file = File::open(path)?;
   let mut reader = BufReader::new(file);
   let mut buf = Vec::new();
-  let n = reader.read_until(b'\n', &mut buf)?;
+  let (n, _terminated_by_newline) = read_csv_record_bytes(&mut reader, &mut buf)?;
   if n == 0 {
     return Ok(vec![]);
   }
-  if buf.ends_with(b"\n") {
-    buf.pop();
-    if buf.ends_with(b"\r") {
-      buf.pop();
-    }
-  }
+  trim_record_terminator(&mut buf);
   let mut line = String::from_utf8_lossy(&buf).to_string();
   // Strip UTF-8 BOM if present
   if line.starts_with('\u{feff}') {
@@ -156,9 +146,104 @@ fn read_csv_header(path: &Path) -> Result<Vec<String>, CoreError> {
   Ok(headers)
 }
 
+/// Read a single CSV *record* into `out`, streaming from `reader`.
+///
+/// Unlike `read_until('\n')`, this treats newlines inside quoted fields as part of the record,
+/// and only ends the record when it sees a line break while **not** inside quotes.
+///
+/// Returns:
+/// - bytes consumed from reader (including the record terminator if present)
+/// - whether the record ended due to a newline terminator (as opposed to EOF)
+fn read_csv_record_bytes<R: BufRead>(reader: &mut R, out: &mut Vec<u8>) -> Result<(usize, bool), CoreError> {
+  out.clear();
+
+  let mut in_quotes = false;
+  let mut at_field_start = true;
+  let mut consumed = 0usize;
+  let mut terminated_by_newline = false;
+
+  loop {
+    let mut chunk = Vec::new();
+    let n = reader.read_until(b'\n', &mut chunk)?;
+    if n == 0 {
+      break; // EOF
+    }
+    consumed += n;
+
+    // Update quote state based on bytes before the '\n' (if present).
+    let scan_slice = if chunk.ends_with(b"\n") {
+      &chunk[..chunk.len().saturating_sub(1)]
+    } else {
+      chunk.as_slice()
+    };
+    update_csv_quote_state(&mut in_quotes, &mut at_field_start, scan_slice);
+
+    out.extend_from_slice(&chunk);
+
+    if chunk.ends_with(b"\n") && !in_quotes {
+      terminated_by_newline = true;
+      break;
+    }
+
+    // If read_until hit EOF without a trailing '\n', we have a (possibly unterminated) last record.
+    if !chunk.ends_with(b"\n") {
+      break;
+    }
+  }
+
+  Ok((consumed, terminated_by_newline))
+}
+
+fn update_csv_quote_state(in_quotes: &mut bool, at_field_start: &mut bool, bytes: &[u8]) {
+  let mut i = 0usize;
+  while i < bytes.len() {
+    let b = bytes[i];
+
+    if *in_quotes {
+      if b == b'"' {
+        // Escaped quote inside quoted field: ""
+        if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+          i += 2;
+          continue;
+        }
+        *in_quotes = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    match b {
+      b',' => {
+        *at_field_start = true;
+      }
+      // Allow leading spaces/tabs before an opening quote.
+      b' ' | b'\t' if *at_field_start => {}
+      b'"' if *at_field_start => {
+        *in_quotes = true;
+        *at_field_start = false;
+      }
+      _ => {
+        *at_field_start = false;
+      }
+    }
+    i += 1;
+  }
+}
+
+fn trim_record_terminator(buf: &mut Vec<u8>) {
+  // Trim LF
+  if buf.ends_with(b"\n") {
+    buf.pop();
+    // Trim CR before LF
+    if buf.ends_with(b"\r") {
+      buf.pop();
+    }
+  }
+}
+
 /// Best-effort single-line CSV parser:
 /// - Supports quotes and escaped quotes ("")
-/// - Does not support multi-line quoted fields (by design for streaming preview)
+/// - Works fine with multi-line records as long as the record text is provided in full
 fn parse_csv_line(line: &str) -> Vec<String> {
   let mut out: Vec<String> = Vec::new();
   let mut cur = String::new();
