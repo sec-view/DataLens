@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="asset/derived/logo-320.png" alt="DataLens" />
+  <img src="asset/derived/logo-320.png" alt="FluxPeek" />
 </p>
 
-# DataLens
+# FluxPeek
 
 **English** | [中文](README.zh-CN.md)
 
 A desktop app for browsing huge dataset files with **seconds-to-first-screen** performance and **low memory usage** (Tauri + Rust + SvelteKit).
 
 
-## Why DataLens
+## Why FluxPeek
 
 - **Open huge files safely**: no more “double-click a big file and freeze the whole system”.
 - **Fast first screen**: stream and render by pages instead of loading everything into memory.
@@ -25,7 +25,7 @@ A desktop app for browsing huge dataset files with **seconds-to-first-screen** p
 
 Download the ready-to-install **`.dmg`** from [GitHub Releases](../../releases/latest).
 
-- Open the `.dmg`, then drag **DataLens.app** into **Applications**
+- Open the `.dmg`, then drag **FluxPeek.app** into **Applications**
 - If macOS blocks the first launch: right click the app → **Open** (or allow it in **System Settings → Privacy & Security**)
 
 ## Key Features

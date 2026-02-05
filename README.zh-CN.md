@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="asset/derived/logo-320.png" alt="DataLens" />
+  <img src="asset/derived/logo-320.png" alt="FluxPeek" />
 </p>
 
-# DataLens（数据透镜）
+# FluxPeek（流览）
 
 [English](README.md) | **中文**
 
@@ -25,7 +25,7 @@
 
 可直接从 [GitHub Releases](../../releases/latest) 下载可安装的 **`.dmg`** 包。
 
-- 打开 `.dmg`，将 **DataLens.app** 拖入 **Applications（应用程序）**
+- 打开 `.dmg`，将 **FluxPeek.app** 拖入 **Applications（应用程序）**
 - 若首次打开被系统拦截：右键应用 → **打开**（或到 **系统设置 → 隐私与安全性** 中放行）
 
 ## 特性

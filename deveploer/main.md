@@ -116,3 +116,9 @@
 - **UI 修改没生效**：`./dev.sh` 默认会清理 Svelte/Vite 缓存并 `vite build`；想加快启动可设置 `REBUILD_FRONTEND=0` / `CLEAN_FRONTEND=0`
 - **详情“加载完整内容”失败**：受 Tauri IPC 大小上限影响，`core` 侧对单条记录读取有 50MB safety cap；超大 JSON 会切到 `JsonLazyTree` 流式浏览与/或提示用导出查看
 
+---
+
+## 变更记录
+
+- 2026-02-05：将产品名由 DataLens 更换为 FluxPeek，并同步更新 README、Tauri 配置与 macOS UTI 标识。
+

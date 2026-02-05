@@ -13,7 +13,7 @@
     <array>
       <dict>
         <key>UTTypeIdentifier</key>
-        <string>com.datalens.jsonl</string>
+        <string>com.fluxpeek.jsonl</string>
         <key>UTTypeDescription</key>
         <string>JSON Lines</string>
         <key>UTTypeConformsTo</key>
@@ -33,7 +33,7 @@
 
       <dict>
         <key>UTTypeIdentifier</key>
-        <string>com.datalens.parquet</string>
+        <string>com.fluxpeek.parquet</string>
         <key>UTTypeDescription</key>
         <string>Apache Parquet</string>
         <key>UTTypeConformsTo</key>
@@ -81,7 +81,7 @@
         <string>Owner</string>
         <key>LSItemContentTypes</key>
         <array>
-          <string>com.datalens.jsonl</string>
+          <string>com.fluxpeek.jsonl</string>
         </array>
         <key>CFBundleTypeExtensions</key>
         <array>
@@ -117,7 +117,7 @@
         <string>Owner</string>
         <key>LSItemContentTypes</key>
         <array>
-          <string>com.datalens.parquet</string>
+          <string>com.fluxpeek.parquet</string>
         </array>
         <key>CFBundleTypeExtensions</key>
         <array>

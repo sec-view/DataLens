@@ -3,7 +3,7 @@
 //! When the user double-clicks a file associated with the app (or uses Finder "Open With"),
 //! macOS delivers an AppleEvent to the app delegate (`application:openFile:` / `application:openFiles:`).
 //! If we don't implement these delegate methods, Finder shows an error dialog like:
-//! "DataLens cannot open files in the “Apache Parquet” format."
+//! "FluxPeek cannot open files in the “Apache Parquet” format."
 //!
 //! Tauri v1 does not expose this event via `RunEvent`, so we patch the delegate at runtime.
 
