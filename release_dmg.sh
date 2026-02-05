@@ -59,6 +59,7 @@ APP_VERSION="$(
   node -e "try{const c=require(process.argv[1]);process.stdout.write(((c.package&&c.package.version)||'0.0.0')+'')}catch(e){process.stdout.write('0.0.0')}" "$TAURI_CONF"
 )"
 
+SAFE_NAME="${PRODUCT_NAME// /-}"
 ARCH="$(uname -m)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
@@ -93,15 +94,29 @@ if [[ ! -d "$TARGET_DIR" ]]; then
   TARGET_DIR="$TAURI_DIR/target/release/bundle/dmg"
 fi
 
-DMG_PATH="$(ls -t "$TARGET_DIR"/*.dmg 2>/dev/null | head -n 1 || true)"
+DMG_PATH="$(ls -t "$TARGET_DIR"/"${SAFE_NAME}"*.dmg 2>/dev/null | head -n 1 || true)"
+if [[ -z "$DMG_PATH" ]]; then
+  DMG_PATH="$(ls -t "$TARGET_DIR"/*.dmg 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$DMG_PATH" ]]; then
+    echo "Warning: DMG name does not match productName (${PRODUCT_NAME})." >&2
+    echo "         Check tauri.conf.json productName and rebuild." >&2
+  fi
+fi
 if [[ -z "$DMG_PATH" ]]; then
   echo "Failed to find .dmg in: $TARGET_DIR" >&2
   echo "Tip: open \"$TAURI_DIR/target\" to inspect build outputs." >&2
   exit 1
 fi
 
-# Normalize product name for filename
-SAFE_NAME="${PRODUCT_NAME// /-}"
+# Remove stale DMGs from previous product names (avoid accidental installs).
+for dmg in "$OUT_DIR"/*.dmg; do
+  [[ -e "$dmg" ]] || continue
+  base="$(basename "$dmg")"
+  if [[ "$base" != "${SAFE_NAME}"*".dmg" ]]; then
+    rm -f "$dmg"
+  fi
+done
+
 OUT_NAME="${SAFE_NAME}-v${APP_VERSION}-macos-${ARCH}-${STAMP}.dmg"
 
 cp -f "$DMG_PATH" "$OUT_DIR/$OUT_NAME"

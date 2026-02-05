@@ -8,6 +8,8 @@
 
 A desktop app for browsing huge dataset files with **seconds-to-first-screen** performance and **low memory usage** (Tauri + Rust + SvelteKit).
 
+> Note: this project was previously named **DataLens**.
+
 
 ## Why FluxPeek
 
